@@ -18,6 +18,7 @@ function App() {
   const detectorRef = useRef(null);
   const frameRef = useRef(null);
   const cursorRef = useRef(null);
+  const lastMoveRef = useRef(0);
   const pinchRef = useRef(false);
   const lastClickRef = useRef(0);
   const demoButtonRef = useRef(null);
@@ -29,6 +30,16 @@ function App() {
   const [clicks, setClicks] = useState(0);
   const [sensitivity, setSensitivity] = useState(50);
   const [nativeError, setNativeError] = useState('');
+
+  const moveCursor = useCallback((position) => {
+    if (!window.handtapDesktop?.isDesktop) return;
+    const now = performance.now();
+    if (now - lastMoveRef.current < 30) return;
+    lastMoveRef.current = now;
+    window.handtapDesktop.moveAt(position).catch((moveError) => {
+      setNativeError(moveError.message || 'The desktop cursor could not be moved.');
+    });
+  }, []);
 
   const stopCamera = useCallback(() => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
@@ -102,6 +113,8 @@ function App() {
       drawLandmarks(landmarks);
       const thumb = landmarks[4];
       const index = landmarks[8];
+      const screenPosition = { x: 1 - index.x, y: index.y };
+      moveCursor(screenPosition);
       const distance = Math.hypot(thumb.x - index.x, thumb.y - index.y);
       const threshold = PINCH_THRESHOLD + (sensitivity - 50) * 0.0007;
       const isPinching = pinchRef.current
@@ -110,7 +123,7 @@ function App() {
       setConfidence(Math.max(0, Math.min(100, Math.round((1 - distance / 0.3) * 100))));
       setGesture(isPinching ? 'Tap detected' : 'Hand ready');
       if (isPinching && !pinchRef.current) {
-        triggerClick({ x: 1 - index.x, y: index.y });
+        triggerClick(screenPosition);
       }
       pinchRef.current = isPinching;
     } else {
@@ -120,7 +133,7 @@ function App() {
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
     frameRef.current = requestAnimationFrame(detect);
-  }, [sensitivity, triggerClick]);
+  }, [moveCursor, sensitivity, triggerClick]);
 
   const startCamera = async () => {
     setLoading(true);
@@ -192,7 +205,7 @@ function App() {
             {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
           </div>
           {error && <div className="error-message"><AlertCircle size={16} /> {error}</div>}
-          <div className="camera-hint"><MousePointer2 size={14} /> The purple cursor follows your index finger</div>
+          <div className="camera-hint"><MousePointer2 size={14} /> Your real cursor follows your index finger across the screen</div>
           <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
             {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
           </button>
