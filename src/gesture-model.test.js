@@ -128,6 +128,7 @@ test('saved reach zones and gestures load back, and bad ones are ignored', () =>
 
 test('mouse control takes a thumb tap nothing else is using', () => {
   assert.equal(loadControlToggle(memoryStorage(), 'ringTap', {}), 'middleTap');
+  assert.equal(loadControlToggle(memoryStorage(), 'ringTap', { middleTap: 'Ctrl+C', ringTap: 'Ctrl+V' }), 'middleTap');
   assert.equal(loadControlToggle(memoryStorage(), 'middleTap', {}), 'ringTap');
   assert.equal(loadControlToggle(memoryStorage(), 'ringTap', { middleTap: 'Enter' }), '');
   assert.equal(loadControlToggle(memoryStorage({ 'handtap.controlToggle': '""' }), 'ringTap', {}), '');

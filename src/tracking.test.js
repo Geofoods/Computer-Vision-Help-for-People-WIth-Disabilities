@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DIGIT_CHART, createDigitDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { DIGIT_CHART, createDigitDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -148,6 +148,20 @@ test('letting go early restarts a hold', () => {
   hold.update(false, 400);
   assert.equal(hold.update(true, 600), false);
   assert.equal(hold.update(true, 1000), false);
+});
+
+test('head tilt is named from the person\'s own point of view', () => {
+  const face = (rightEyeY, leftEyeY) => {
+    const landmarks = [];
+    landmarks[33] = { x: 0.4, y: rightEyeY };
+    landmarks[263] = { x: 0.6, y: leftEyeY };
+    return landmarks;
+  };
+  assert.equal(headTilt(face(0.5, 0.5)), null);
+  assert.equal(headTilt(face(0.5, 0.52)), null);
+  assert.equal(headTilt(face(0.56, 0.44)), 'headTiltRight');
+  assert.equal(headTilt(face(0.44, 0.56)), 'headTiltLeft');
+  assert.equal(headTilt(null), null);
 });
 
 test('cursorPoint is mirrored', () => {

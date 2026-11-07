@@ -19,6 +19,7 @@ Gesture control can help, but most of it swaps one fixed requirement for another
 | Move your hand | Moves the real mouse cursor |
 | Tap thumb and index finger | Clicks |
 | Stick out your tongue | Scrolls down |
+| Tilt and hold your head | Goes back or forward in a browser |
 | Hold up a finger pattern, then close your hand | Types a number, 0 to 9 |
 | Swipe, make a fist, or tap thumb to a finger | Presses any keyboard shortcut you choose |
 | Hold thumb to a finger for half a second | Turns mouse control or number typing on and off |
@@ -117,7 +118,7 @@ If you see `Electron failed to install correctly`, delete `node_modules/electron
 - **Not yet tested with disabled users.** This is the most important next step, and their feedback should shape what comes after it.
 - Native mouse and keyboard control is Windows-only for now.
 - Tracking needs reasonable light, and follows one hand at a time.
-- Tongue detection is less reliable than hand tracking, and can be turned off in Keybinds.
+- Tongue detection is less reliable than hand tracking. Like every movement, it can be turned off in Keybinds.
 - Typing covers numbers so far, not letters.
 
 ## Where it could go

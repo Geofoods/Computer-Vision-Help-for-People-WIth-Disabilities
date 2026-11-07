@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
-import { REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
 import { SAMPLES_PER_TEACH, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
@@ -15,6 +15,8 @@ const CLICK_COOLDOWN = 500;
 const SCROLL_COOLDOWN = 1200;
 const TYPED_DISPLAY_LENGTH = 24;
 const TEACH_COUNTDOWN = 1500;
+// Heads move naturally while people talk and look around, so a tilt has to be held.
+const HEAD_TILT_HOLD = 400;
 const REACH_CAPTURE_TIME = 5000;
 // A timer rather than requestAnimationFrame, which stops when the window is hidden
 // and would freeze the mouse the moment another app covers this one.
@@ -69,6 +71,8 @@ function App() {
   const lastScrollRef = useRef(0);
   const lastPositionRef = useRef(null);
   const tongueRef = useRef(false);
+  const headTiltRef = useRef(null);
+  const headTiltHoldRef = useRef(createHoldDetector({ holdMs: HEAD_TILT_HOLD }));
   const faceLandmarksRef = useRef(null);
   const filterXRef = useRef(createOneEuroFilter());
   const filterYRef = useRef(createOneEuroFilter());
@@ -182,6 +186,8 @@ function App() {
     setGesture('Camera paused');
     setTongueActive(false);
     tongueRef.current = false;
+    headTiltRef.current = null;
+    headTiltHoldRef.current.reset();
     faceLandmarksRef.current = null;
     teachRef.current = null;
     setTeaching(null);
@@ -208,6 +214,8 @@ function App() {
   }, []);
 
   const triggerMovement = useCallback(async (id, position) => {
+    // Learning from the hand shouldn't press anything, including from the face.
+    if (teachRef.current || reachCaptureRef.current) return;
     // Number typing is made of poses, so only a swipe can mean something else while it's on.
     if (typingRef.current && !id.startsWith('swipe')) return;
     setLastMovement({ id });
@@ -257,6 +265,12 @@ function App() {
   const handleFace = useCallback(({ landmarks, blendshapes }) => {
     const licking = isLicking(blendshapes);
     faceLandmarksRef.current = landmarks;
+    const tilt = headTilt(landmarks);
+    if (tilt !== headTiltRef.current) {
+      headTiltRef.current = tilt;
+      headTiltHoldRef.current.reset();
+    }
+    if (headTiltHoldRef.current.update(Boolean(tilt), performance.now())) triggerMovement(tilt);
     setTongueActive(licking);
     if (licking && !tongueRef.current) {
       setTongueLicks((value) => value + 1);
