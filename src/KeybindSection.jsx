@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
 import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, isPreset } from './keybinds.js';
+import { ModuleIndex } from './components/ModuleIndex.jsx';
+import { HudFrame } from './components/HudFrame.jsx';
+import { DualLayerButton } from './components/DualLayerButton.jsx';
+import { ScrollSection } from './components/ScrollSection.jsx';
+import { FluidHoverHighlight } from './components/FluidHoverHighlight.jsx';
+import { useFluidHover } from './hooks/useFluidHover.js';
 
 const FLASH_MS = 1200;
 
@@ -10,7 +16,7 @@ function statusText(isDesktop, controlOn) {
   return 'Movements with a shortcut now press it in whichever app is in front.';
 }
 
-function BindingRow({ movement, combo, flashing, onChange, reservedFor }) {
+function BindingRow({ movement, combo, flashing, onChange, reservedFor, itemHoverProps }) {
   const reserved = Boolean(reservedFor);
   const [recording, setRecording] = useState(false);
   const selectId = `keybind-${movement.id}`;
@@ -18,7 +24,6 @@ function BindingRow({ movement, combo, flashing, onChange, reservedFor }) {
   const handleKeyDown = (event) => {
     if (!recording) return;
     event.preventDefault();
-    // Esc always leaves recording, so the keyboard can't get stuck here.
     if (event.code === 'Escape') {
       setRecording(false);
       return;
@@ -31,39 +36,65 @@ function BindingRow({ movement, combo, flashing, onChange, reservedFor }) {
   };
 
   return (
-    <li className={`keybind-row ${flashing ? 'flash' : ''}`}>
+    <li
+      {...itemHoverProps}
+      className={`keybind-row ${flashing ? 'flash' : ''}`.trim()}
+    >
       <div className="keybind-movement">
         <label htmlFor={selectId}>{movement.label}</label>
         <small>{movement.hint}</small>
       </div>
-      <select id={selectId} value={reserved ? '' : combo ?? ''} disabled={reserved} onChange={(event) => onChange(movement.id, event.target.value)}>
+      <select
+        id={selectId}
+        value={reserved ? '' : combo ?? ''}
+        disabled={reserved}
+        onChange={(event) => onChange(movement.id, event.target.value)}
+      >
         <option value="">{reservedFor ?? 'No shortcut'}</option>
         {combo && !isPreset(combo) && <option value={combo}>{combo}</option>}
         {PRESET_GROUPS.map(({ label, presets }) => (
           <optgroup key={label} label={label}>
             {presets.map((preset) => (
-              <option key={preset.combo} value={preset.combo}>{preset.label.toLowerCase() === preset.combo.toLowerCase() ? preset.label : `${preset.label} (${preset.combo})`}</option>
+              <option key={preset.combo} value={preset.combo}>
+                {preset.label.toLowerCase() === preset.combo.toLowerCase()
+                  ? preset.label
+                  : `${preset.label} (${preset.combo})`}
+              </option>
             ))}
           </optgroup>
         ))}
       </select>
-      <button
+      <DualLayerButton
         type="button"
         className={`record-button ${recording ? 'recording' : ''}`}
         disabled={reserved}
-        aria-label={recording ? `Recording a shortcut for ${movement.label}. Press keys, or Esc to cancel.` : `Record a shortcut for ${movement.label}`}
+        aria-label={
+          recording
+            ? `Recording a shortcut for ${movement.label}. Press keys, or Esc to cancel.`
+            : `Record a shortcut for ${movement.label}`
+        }
         onClick={() => setRecording((value) => !value)}
         onKeyDown={handleKeyDown}
         onBlur={() => setRecording(false)}
+        hoverText={recording ? 'Waiting for key…' : 'Press keys'}
       >
-        <Keyboard size={16} strokeWidth={1.5} /> {recording ? 'Press keys…' : 'Record'}
-      </button>
+        <Keyboard size={15} strokeWidth={1.6} /> {recording ? 'Press keys…' : 'Record'}
+      </DualLayerButton>
     </li>
   );
 }
 
-export function KeybindSection({ bindings, onChange, lastMovement, controlOn, isDesktop, typingToggle, controlToggle }) {
+export function KeybindSection({
+  bindings,
+  onChange,
+  lastMovement,
+  controlOn,
+  isDesktop,
+  typingToggle,
+  controlToggle,
+}) {
   const [flashingId, setFlashingId] = useState(null);
+  const { containerProps, registerItem, hover } = useFluidHover({ axis: 'y' });
 
   useEffect(() => {
     if (!lastMovement) return undefined;
@@ -75,29 +106,41 @@ export function KeybindSection({ bindings, onChange, lastMovement, controlOn, is
   const flashing = MOVEMENTS.find(({ id }) => id === flashingId);
 
   return (
-    <section className="workspace keybinds" aria-labelledby="keybinds-heading">
+    <ScrollSection className="keybinds" aria-labelledby="keybinds-heading">
       <div className="section-heading">
         <div>
-          <p className="eyebrow">Keybinds</p>
+          <ModuleIndex index={5} label="Movement shortcuts" />
           <h2 id="keybinds-heading">Turn movements into shortcuts</h2>
         </div>
       </div>
-      <div className="keybind-panel">
+      <HudFrame className="keybind-panel">
         <p className="keybind-status">{statusText(isDesktop, controlOn)}</p>
-        <ul className="keybind-list">
-          {MOVEMENTS.map((movement) => (
-            <BindingRow
-              key={movement.id}
-              movement={movement}
-              combo={bindings[movement.id]}
-              flashing={flashingId === movement.id}
-              onChange={onChange}
-              reservedFor={movement.id === typingToggle ? 'Turns number typing on and off' : movement.id === controlToggle ? 'Turns mouse control on and off' : undefined}
-            />
-          ))}
-        </ul>
-        <p className="keybind-live" aria-live="polite">{flashing ? `${flashing.label} detected` : ''}</p>
-      </div>
-    </section>
+        <div className="fluid-list-stage" {...containerProps}>
+          <FluidHoverHighlight hover={hover} className="keybind-hover-pill" />
+          <ul className="keybind-list">
+            {MOVEMENTS.map((movement) => (
+              <BindingRow
+                key={movement.id}
+                movement={movement}
+                combo={bindings[movement.id]}
+                flashing={flashingId === movement.id}
+                onChange={onChange}
+                itemHoverProps={registerItem(movement.id)}
+                reservedFor={
+                  movement.id === typingToggle
+                    ? 'Turns number typing on and off'
+                    : movement.id === controlToggle
+                      ? 'Turns mouse control on and off'
+                      : undefined
+                }
+              />
+            ))}
+          </ul>
+        </div>
+        <p className="keybind-live" aria-live="polite">
+          {flashing ? `${flashing.label} detected` : ''}
+        </p>
+      </HudFrame>
+    </ScrollSection>
   );
 }

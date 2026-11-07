@@ -1,0 +1,20 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run HandTap Desktop App",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run desktop:dev",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Run HandTap in Browser (Vite)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
+
