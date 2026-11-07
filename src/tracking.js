@@ -155,6 +155,12 @@ export function toScreen({ x, y }) {
   };
 }
 
+/** Whether face blendshapes show a tongue gesture. A mouth shape counts too, since tongueOut alone is unreliable. */
+export function isLicking(blendshapes) {
+  const score = (name) => blendshapes.find(({ categoryName }) => categoryName === name)?.score ?? 0;
+  return score('tongueOut') > 0.2 || (score('jawOpen') > 0.35 && score('mouthPucker') > 0.08);
+}
+
 /**
  * Pinch state machine. The release threshold sits above the press threshold so a
  * hand hovering near the boundary can't fire repeated clicks, and a press must last

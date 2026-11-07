@@ -2,8 +2,14 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('handtapDesktop', {
   isDesktop: true,
-  moveAt: (position) => ipcRenderer.invoke('handtap:move', position),
   clickAt: (position) => ipcRenderer.invoke('handtap:click', position),
+  moveTo: (position) => ipcRenderer.send('handtap:move', position),
   scrollDown: () => ipcRenderer.invoke('handtap:scroll'),
   pressKeys: (combo) => ipcRenderer.invoke('handtap:press-keys', combo),
+  getHotkey: () => ipcRenderer.invoke('handtap:hotkey'),
+  onToggleControl: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('handtap:toggle-control', listener);
+    return () => ipcRenderer.removeListener('handtap:toggle-control', listener);
+  },
 });
