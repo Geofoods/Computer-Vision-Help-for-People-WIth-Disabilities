@@ -57,7 +57,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
 }
 `;
 
-const SCROLL_DOWN_AMOUNT = -600;
+const SCROLL_DOWN_AMOUNT = -1200;
 
 function assertPosition(position) {
   const x = Number(position?.x);
