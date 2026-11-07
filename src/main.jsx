@@ -1324,11 +1324,13 @@ function App() {
                     width="640"
                     height="360"
                   />
-                  <span className="callout-tag callout-pinch">Thumb + index · Pinch click</span>
-                  <span className="callout-tag callout-filter">1€ filter · Tremor smoothed</span>
-                  <span className="callout-tag callout-wasm">
-                    <Sparkles size={12} strokeWidth={1.75} /> Spatial aura feedback
-                  </span>
+                  <div className="callout-stack">
+                    <span className="callout-tag callout-pinch">Thumb + index · Pinch click</span>
+                    <span className="callout-tag callout-filter">1€ filter · Tremor smoothed</span>
+                    <span className="callout-tag callout-wasm">
+                      <Sparkles size={12} strokeWidth={1.75} /> Spatial aura feedback
+                    </span>
+                  </div>
                 </div>
 
                 <div className="fluid-steps-wrap" {...stepsHover.containerProps}>
