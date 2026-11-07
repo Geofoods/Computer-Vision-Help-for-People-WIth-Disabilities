@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createOneEuroFilter, createPinchDetector, cursorPoint, pinchRatio, toScreen } from './tracking.js';
+import { createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -61,6 +61,15 @@ test('higher sensitivity triggers on a wider gap', () => {
   const high = createPinchDetector({ holdFrames: 1 });
   assert.equal(low.update(0.33, 20).pinching, false);
   assert.equal(high.update(0.33, 80).pinching, true);
+});
+
+test('isLicking needs a tongue or the matching mouth shape', () => {
+  const shapes = (scores) => Object.entries(scores).map(([categoryName, score]) => ({ categoryName, score }));
+  assert.equal(isLicking([]), false);
+  assert.equal(isLicking(shapes({ tongueOut: 0.5 })), true);
+  assert.equal(isLicking(shapes({ jawOpen: 0.6, mouthPucker: 0.2 })), true);
+  assert.equal(isLicking(shapes({ jawOpen: 0.6 })), false);
+  assert.equal(isLicking(shapes({ tongueOut: 0.1, mouthPucker: 0.5 })), false);
 });
 
 test('cursorPoint is mirrored', () => {

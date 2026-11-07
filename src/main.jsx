@@ -1,68 +1,88 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles } from 'lucide-react';
-import { FilesetResolver, FaceLandmarker, HandLandmarker } from '@mediapipe/tasks-vision';
-import { createMovementDetector } from './tracking.js';
+import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
+import { REACH_ZONE, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { loadBindings, saveBindings } from './keybinds.js';
 import { KeybindSection } from './KeybindSection.jsx';
 import './styles.css';
 
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const FACE_MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
-const WASM_URL = new URL('wasm', window.location.href).toString();
-const PINCH_THRESHOLD = 0.105;
-const RELEASE_THRESHOLD = 0.15;
 const CLICK_COOLDOWN = 500;
-const CAMERA_EDGE_MARGIN = 0.16;
+const SCROLL_COOLDOWN = 1200;
+// A timer rather than requestAnimationFrame, which stops when the window is hidden
+// and would freeze the mouse the moment another app covers this one.
+const FRAME_INTERVAL = 33;
+const desktop = window.handtapDesktop;
 
-function mapCameraToScreen(value) {
-  return Math.max(0, Math.min(1, (value - CAMERA_EDGE_MARGIN) / (1 - CAMERA_EDGE_MARGIN * 2)));
+// Starts the detection worker and resolves once its model has loaded.
+function createWorker() {
+  return new Promise((resolve, reject) => {
+    // Resolved next to index.html, where the bundled worker is served in dev and in the build.
+    const worker = new Worker(new URL('hand-worker.js', window.location.href));
+    worker.onmessage = ({ data }) => {
+      if (data.type === 'ready') resolve(worker);
+      else if (data.type === 'error') reject(new Error(data.message));
+    };
+    worker.onerror = (event) => reject(new Error(event.message || 'The hand tracking worker failed to start.'));
+    worker.postMessage({ type: 'init' });
+  });
+}
+
+function cameraErrorMessage(error) {
+  if (error.name === 'NotAllowedError') return 'Camera permission was denied. Allow camera access and try again.';
+  if (error.name === 'NotFoundError') return 'No camera was found. Connect a camera and try again, or restart HandTap if one is already connected.';
+  if (error.name === 'NotReadableError') return 'Another app is using the camera. Close it and try again.';
+  return 'We could not start the camera. Check camera permissions and try again.';
 }
 
 function App() {
   const videoRef = useRef(null);
+  const viewRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const workerRef = useRef(null);
-  const detectorRef = useRef(null);
-  const faceDetectorRef = useRef(null);
-  const captureRef = useRef(null);
-  const processingRef = useRef(false);
-  const captureFrameRef = useRef(null);
+  // True while a frame is out with the worker, so frames are dropped rather than queued.
+  const busyRef = useRef(false);
+  const onLandmarksRef = useRef(() => {});
+  const onFaceRef = useRef(() => {});
+  const timerRef = useRef(null);
+  // Starts at 0 so the placeholder frame shown before the camera's first real frame is skipped.
+  const lastVideoTimeRef = useRef(0);
   const cursorRef = useRef(null);
-  const lastMoveRef = useRef(0);
-  const pinchRef = useRef(false);
   const lastClickRef = useRef(0);
+  const demoButtonRef = useRef(null);
+  const pinchRef = useRef(createPinchDetector());
+  const movementRef = useRef(createMovementDetector());
   const lastScrollRef = useRef(0);
   const tongueRef = useRef(false);
   const faceLandmarksRef = useRef(null);
-  const demoButtonRef = useRef(null);
-  const movementRef = useRef(createMovementDetector());
+  const filterXRef = useRef(createOneEuroFilter());
+  const filterYRef = useRef(createOneEuroFilter());
   const [cameraOn, setCameraOn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [gesture, setGesture] = useState('Waiting for camera');
-  const [confidence, setConfidence] = useState(0);
+  const [strength, setStrength] = useState(0);
   const [clicks, setClicks] = useState(0);
-  const [tongueLicks, setTongueLicks] = useState(0);
-  const [tongueActive, setTongueActive] = useState(false);
   const [sensitivity, setSensitivity] = useState(50);
   const [nativeError, setNativeError] = useState('');
-  const [workerReady, setWorkerReady] = useState(false);
+  const [controlOn, setControlOn] = useState(false);
+  const [hotkey, setHotkey] = useState(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [demoClicks, setDemoClicks] = useState(0);
+  const [tongueLicks, setTongueLicks] = useState(0);
+  const [tongueActive, setTongueActive] = useState(false);
+  const [tongueAvailable, setTongueAvailable] = useState(true);
   const [bindings, setBindings] = useState(() => loadBindings(window.localStorage));
-  const [sendKeysOn, setSendKeysOn] = useState(false);
   const [lastMovement, setLastMovement] = useState(null);
 
-  // The worker's message handler keeps the callbacks from when the camera started,
-  // so anything movement detection reads has to come from a ref to stay current.
-  const bindingsRef = useRef(bindings);
-  bindingsRef.current = bindings;
-  const sendKeysRef = useRef(sendKeysOn);
-  sendKeysRef.current = sendKeysOn;
+  // The detection loop runs outside React's render cycle, so it reads current values
+  // from refs. Values captured in a closure would never update once the loop started.
   const sensitivityRef = useRef(sensitivity);
   sensitivityRef.current = sensitivity;
+  const controlRef = useRef(controlOn);
+  controlRef.current = controlOn;
+  const bindingsRef = useRef(bindings);
+  bindingsRef.current = bindings;
 
   const setBinding = useCallback((id, combo) => {
     setBindings((current) => {
@@ -75,92 +95,30 @@ function App() {
 
   useEffect(() => saveBindings(window.localStorage, bindings), [bindings]);
 
-  const triggerMovement = useCallback(async (id) => {
-    setLastMovement({ id });
-    const combo = bindingsRef.current[id];
-    if (!combo || !window.handtapDesktop?.isDesktop || !sendKeysRef.current) return;
-    setNativeError('');
-    try {
-      await window.handtapDesktop.pressKeys(combo);
-    } catch (keyError) {
-      setNativeError(keyError.message || 'The shortcut could not be pressed.');
-    }
-  }, []);
-
-  const moveCursor = useCallback((position) => {
-    if (!window.handtapDesktop?.isDesktop) return;
-    const now = performance.now();
-    if (now - lastMoveRef.current < 30) return;
-    lastMoveRef.current = now;
-    window.handtapDesktop.moveAt(position).catch((moveError) => {
-      setNativeError(moveError.message || 'The desktop cursor could not be moved.');
-    });
-  }, []);
-
-  const drawFace = useCallback((landmarks, active) => {
-    faceLandmarksRef.current = landmarks;
+  const resetTracking = () => {
+    pinchRef.current.reset();
+    movementRef.current.reset();
+    filterXRef.current.reset();
+    filterYRef.current.reset();
+    cursorRef.current?.classList.remove('visible');
     const canvas = canvasRef.current;
-    if (!canvas || !landmarks) return;
-    const context = canvas.getContext('2d');
-    const upperLip = landmarks[13];
-    const lowerLip = landmarks[14];
-    const leftCorner = landmarks[61];
-    const rightCorner = landmarks[291];
-    if (!upperLip || !lowerLip || !leftCorner || !rightCorner) return;
-    context.strokeStyle = active ? '#67e8a4' : '#f2b84b';
-    context.lineWidth = 5;
-    context.beginPath();
-    context.ellipse(
-      ((leftCorner.x + rightCorner.x) / 2) * canvas.width,
-      ((upperLip.y + lowerLip.y) / 2) * canvas.height,
-      Math.max(12, Math.abs(rightCorner.x - leftCorner.x) * canvas.width / 2),
-      Math.max(8, Math.abs(lowerLip.y - upperLip.y) * canvas.height / 2 + 5),
-      0,
-      0,
-      Math.PI * 2,
-    );
-    context.stroke();
-  }, []);
-
-  const handleFace = useCallback((blendshapes, landmarks) => {
-    const jawOpen = blendshapes.find(({ categoryName }) => categoryName === 'jawOpen')?.score || 0;
-    const mouthPucker = blendshapes.find(({ categoryName }) => categoryName === 'mouthPucker')?.score || 0;
-    const tongueOut = blendshapes.find(({ categoryName }) => categoryName === 'tongueOut')?.score || 0;
-    const licking = tongueOut > 0.2 || (jawOpen > 0.35 && mouthPucker > 0.08);
-    setTongueActive(licking);
-    drawFace(landmarks, licking);
-    const now = performance.now();
-    if (licking && !tongueRef.current) {
-      setTongueLicks((value) => value + 1);
-      if (now - lastScrollRef.current > 1200) {
-        lastScrollRef.current = now;
-        window.handtapDesktop?.scrollDown?.().catch((scrollError) => {
-          setNativeError(scrollError.message || 'The desktop page could not be scrolled.');
-        });
-      }
-    }
-    tongueRef.current = licking;
-  }, [drawFace]);
+    canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    setStrength(0);
+  };
 
   const stopCamera = useCallback(() => {
-    if (captureRef.current) clearInterval(captureRef.current);
-    workerRef.current?.terminate();
-    workerRef.current = null;
-    detectorRef.current?.close?.();
-    detectorRef.current = null;
-    faceDetectorRef.current?.close?.();
-    faceDetectorRef.current = null;
-    setWorkerReady(false);
-    if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
+    clearTimeout(timerRef.current);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
+    lastVideoTimeRef.current = 0;
+    busyRef.current = false;
     setCameraOn(false);
+    setControlOn(false);
     setGesture('Camera paused');
-    setConfidence(0);
     setTongueActive(false);
-    setSendKeysOn(false);
-    movementRef.current.reset();
-    pinchRef.current = false;
-    cursorRef.current?.classList.remove('visible');
+    tongueRef.current = false;
+    faceLandmarksRef.current = null;
+    resetTracking();
   }, []);
 
   const triggerClick = useCallback(async (position) => {
@@ -170,8 +128,8 @@ function App() {
     setNativeError('');
     setClicks((value) => value + 1);
     try {
-      if (window.handtapDesktop?.isDesktop) {
-        await window.handtapDesktop.clickAt(position);
+      if (desktop && controlRef.current) {
+        await desktop.clickAt(position);
       } else {
         demoButtonRef.current?.click();
       }
@@ -180,13 +138,69 @@ function App() {
     }
   }, []);
 
-  const drawLandmarks = useCallback((landmarks) => {
+  const triggerMovement = useCallback(async (id) => {
+    setLastMovement({ id });
+    const combo = bindingsRef.current[id];
+    if (!combo || !desktop || !controlRef.current) return;
+    setNativeError('');
+    try {
+      await desktop.pressKeys(combo);
+    } catch (keyError) {
+      setNativeError(keyError.message || 'The shortcut could not be pressed.');
+    }
+  }, []);
+
+  const handleFace = useCallback(({ landmarks, blendshapes }) => {
+    const licking = isLicking(blendshapes);
+    faceLandmarksRef.current = landmarks;
+    setTongueActive(licking);
+    if (licking && !tongueRef.current) {
+      setTongueLicks((value) => value + 1);
+      const now = performance.now();
+      if (desktop && controlRef.current && now - lastScrollRef.current > SCROLL_COOLDOWN) {
+        lastScrollRef.current = now;
+        desktop.scrollDown().catch((scrollError) => {
+          setNativeError(scrollError.message || 'The page could not be scrolled.');
+        });
+      }
+    }
+    tongueRef.current = licking;
+  }, []);
+  onFaceRef.current = handleFace;
+
+  // Drawn after the hand, which clears the canvas, on every frame so it doesn't flicker
+  // between the less frequent face results.
+  const drawMouth = () => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    const landmarks = faceLandmarksRef.current;
+    if (!canvas || !video || !landmarks) return;
+    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+    const [upperLip, lowerLip, leftCorner, rightCorner] = [13, 14, 61, 291].map((index) => landmarks[index]);
+    const context = canvas.getContext('2d');
+    context.strokeStyle = tongueRef.current ? '#67e8a4' : '#f2b84b';
+    context.lineWidth = 5;
+    context.beginPath();
+    context.ellipse(
+      ((leftCorner.x + rightCorner.x) / 2) * canvas.width,
+      ((upperLip.y + lowerLip.y) / 2) * canvas.height,
+      Math.max(12, (Math.abs(rightCorner.x - leftCorner.x) * canvas.width) / 2),
+      Math.max(8, (Math.abs(lowerLip.y - upperLip.y) * canvas.height) / 2 + 5),
+      0,
+      0,
+      Math.PI * 2,
+    );
+    context.stroke();
+  };
+
+  const drawLandmarks = (landmarks, pinching) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
     const context = canvas.getContext('2d');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
     context.clearRect(0, 0, canvas.width, canvas.height);
     context.fillStyle = '#9b8cff';
     landmarks.forEach(({ x, y }) => {
@@ -196,179 +210,180 @@ function App() {
     });
     const thumb = landmarks[4];
     const index = landmarks[8];
-    if (thumb && index) {
-      if (cursorRef.current) {
-        cursorRef.current.style.left = `${(1 - index.x) * 100}%`;
-        cursorRef.current.style.top = `${index.y * 100}%`;
-        cursorRef.current.classList.add('visible');
-      }
-      context.strokeStyle = pinchRef.current ? '#67e8a4' : '#f2b84b';
-      context.lineWidth = 4;
-      context.beginPath();
-      context.moveTo(thumb.x * canvas.width, thumb.y * canvas.height);
-      context.lineTo(index.x * canvas.width, index.y * canvas.height);
-      context.stroke();
-    }
-  }, []);
+    context.strokeStyle = pinching ? '#67e8a4' : '#f2b84b';
+    context.lineWidth = 4;
+    context.beginPath();
+    context.moveTo(thumb.x * canvas.width, thumb.y * canvas.height);
+    context.lineTo(index.x * canvas.width, index.y * canvas.height);
+    context.stroke();
+  };
 
-  const handleLandmarks = useCallback((landmarks) => {
-    if (landmarks) {
-      drawLandmarks(landmarks);
-      const thumb = landmarks[4];
-      const index = landmarks[8];
-      const target = {
-        x: mapCameraToScreen(1 - index.x),
-        y: mapCameraToScreen(index.y),
-      };
-      const previous = cursorRef.current?.dataset.position
-        ? JSON.parse(cursorRef.current.dataset.position)
-        : target;
-      const screenPosition = {
-        x: previous.x + (target.x - previous.x) * 0.35,
-        y: previous.y + (target.y - previous.y) * 0.35,
-      };
-      if (cursorRef.current) cursorRef.current.dataset.position = JSON.stringify(screenPosition);
-      moveCursor(screenPosition);
-      const distance = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-      const threshold = PINCH_THRESHOLD + (sensitivity - 50) * 0.0007;
-      const video = videoRef.current;
-      const { movement, pose } = movementRef.current.update(landmarks, {
-        aspect: video.videoWidth / video.videoHeight,
-        now: performance.now(),
-        sensitivity: sensitivityRef.current,
-      });
-      // Making a bound pose can bring the index near the thumb, which shouldn't also click.
-      // Unbound poses leave clicking exactly as it is for people not using keybinds.
-      const poseIsBound = Boolean(pose && bindingsRef.current[pose]);
-      const isPinching = !poseIsBound && (pinchRef.current
-        ? distance < RELEASE_THRESHOLD + (sensitivity - 50) * 0.0007
-        : distance < threshold);
-      setConfidence(Math.max(0, Math.min(100, Math.round((1 - distance / 0.3) * 100))));
-      setGesture(isPinching ? 'Tap detected' : 'Hand ready');
-      if (isPinching && !pinchRef.current) {
-        triggerClick(screenPosition);
-      }
-      pinchRef.current = isPinching;
-      if (movement) triggerMovement(movement);
-    } else {
-      setGesture('Show one hand to camera');
-      setConfidence(0);
-      movementRef.current.reset();
-      cursorRef.current?.classList.remove('visible');
-      canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-    }
-  }, [drawLandmarks, handleFace, moveCursor, sensitivity, triggerClick, triggerMovement]);
-
-  const captureFrame = useCallback(async () => {
+  const handleLandmarks = useCallback((landmarks, now) => {
     const video = videoRef.current;
-    if (!video || processingRef.current || video.readyState < 2) return;
-    processingRef.current = true;
-    try {
-      if (detectorRef.current) {
-        const timestamp = performance.now();
-        const result = detectorRef.current.detectForVideo(video, timestamp);
-        const faceResult = faceDetectorRef.current?.detectForVideo(video, timestamp);
-        processingRef.current = false;
-        handleLandmarks(result.landmarks?.[0] || null);
-        handleFace(faceResult?.faceBlendshapes?.[0]?.categories || [], faceResult?.faceLandmarks?.[0] || null);
-        return;
-      }
-      if (!workerRef.current || !workerReady) {
-        processingRef.current = false;
-        return;
-      }
-      const bitmap = await createImageBitmap(video);
-      workerRef.current.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
-    } catch {
-      processingRef.current = false;
+    if (!landmarks) {
+      setGesture('Show one hand to camera');
+      resetTracking();
+      drawMouth();
+      return;
     }
-  }, [handleFace, handleLandmarks, workerReady]);
-  captureFrameRef.current = captureFrame;
+
+    const point = cursorPoint(landmarks);
+    const smoothed = { x: filterXRef.current.filter(point.x, now), y: filterYRef.current.filter(point.y, now) };
+    const aspect = video.videoWidth / video.videoHeight;
+    const ratio = pinchRatio(landmarks, aspect);
+    const { movement, pose } = movementRef.current.update(landmarks, { aspect, now, sensitivity: sensitivityRef.current });
+    // Making a bound pose can bring the index near the thumb, which shouldn't also click.
+    // Unbound poses leave clicking exactly as it is for people not using keybinds.
+    const poseIsBound = Boolean(pose && bindingsRef.current[pose]);
+    const { pinching, justPinched } = pinchRef.current.update(poseIsBound ? Infinity : ratio, sensitivityRef.current);
+    const screenPosition = toScreen(smoothed);
+
+    drawLandmarks(landmarks, pinching);
+    drawMouth();
+    if (cursorRef.current) {
+      cursorRef.current.style.left = `${smoothed.x * 100}%`;
+      cursorRef.current.style.top = `${smoothed.y * 100}%`;
+      cursorRef.current.classList.add('visible');
+    }
+    setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
+    setGesture(pinching ? 'Tap detected' : 'Hand ready');
+
+    if (desktop && controlRef.current) desktop.moveTo(screenPosition);
+    if (justPinched) triggerClick(screenPosition);
+    if (movement) triggerMovement(movement);
+  }, [triggerClick, triggerMovement]);
+  onLandmarksRef.current = handleLandmarks;
+
+  const scheduleFrame = useCallback(() => {
+    timerRef.current = setTimeout(async () => {
+      const video = videoRef.current;
+      const worker = workerRef.current;
+      // Skip ticks that arrive before the camera has a new frame, or while the worker is busy.
+      if (video && worker && !busyRef.current && video.readyState >= 2 && video.currentTime !== lastVideoTimeRef.current) {
+        lastVideoTimeRef.current = video.currentTime;
+        busyRef.current = true;
+        try {
+          const bitmap = await createImageBitmap(video);
+          worker.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
+        } catch (frameError) {
+          busyRef.current = false;
+          console.error(frameError);
+        }
+      }
+      if (streamRef.current) scheduleFrame();
+    }, FRAME_INTERVAL);
+  }, []);
 
   const startCamera = async () => {
     setLoading(true);
     setError('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false,
+      });
       streamRef.current = stream;
+      // Fires when the camera dies on its own (unplugged, driver crash), not on a normal stop.
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        stopCamera();
+        setError('The camera stopped unexpectedly. Press Start camera to try again.');
+      });
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
-      const worker = new Worker(new URL('./hand-worker.js', import.meta.url), { type: 'module' });
-      workerRef.current = worker;
-      worker.onmessage = (event) => {
-        if (event.data.type === 'ready') {
-          setWorkerReady(true);
-          setGesture('Show one hand to camera');
-        } else if (event.data.type === 'result') {
-          processingRef.current = false;
-          handleLandmarks(event.data.landmarks);
-          handleFace(event.data.faceBlendshapes || [], event.data.faceLandmarks || null);
-        } else if (event.data.type === 'error') {
-          worker.terminate();
-          workerRef.current = null;
-          setGesture('Starting compatible hand tracking');
-          FilesetResolver.forVisionTasks(WASM_URL)
-            .then(async (vision) => {
-              detectorRef.current = await HandLandmarker.createFromOptions(vision, {
-                baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-                runningMode: 'VIDEO',
-                numHands: 1,
-                minHandDetectionConfidence: 0.55,
-                minHandPresenceConfidence: 0.55,
-                minTrackingConfidence: 0.55,
-              });
-              faceDetectorRef.current = await FaceLandmarker.createFromOptions(vision, {
-                baseOptions: { modelAssetPath: FACE_MODEL_URL, delegate: 'GPU' },
-                runningMode: 'VIDEO',
-                outputFaceBlendshapes: true,
-                numFaces: 1,
-              });
-              setWorkerReady(true);
-              setGesture('Show one hand to camera');
-            })
-            .catch((fallbackError) => {
-              setError(`Hand tracking could not start: ${fallbackError.message}`);
-            });
-        }
-      };
-      worker.postMessage({ type: 'init' });
-      setCameraOn(true);
-      setGesture('Loading hand tracking');
-      captureRef.current = setInterval(() => captureFrameRef.current?.(), 33);
     } catch (cameraError) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
-      setError(cameraError.name === 'NotAllowedError'
-        ? 'Camera permission was denied. Allow camera access in your browser and try again.'
-        : 'We could not start the camera. Check camera permissions and try again.');
+      streamRef.current = null;
+      setError(cameraErrorMessage(cameraError));
+      setLoading(false);
+      return;
+    }
+    try {
+      if (!workerRef.current) {
+        // Kept across pauses, so restarting the camera doesn't reload the model.
+        const worker = await createWorker();
+        worker.onmessage = ({ data }) => {
+          // Only tongue tracking can still fail once the hand model is running.
+          if (data.type === 'face-unavailable' || data.type === 'error') setTongueAvailable(false);
+          if (data.type !== 'result') return;
+          busyRef.current = false;
+          if (!streamRef.current) return;
+          if (data.face) onFaceRef.current(data.face);
+          onLandmarksRef.current(data.landmarks, performance.now());
+        };
+        workerRef.current = worker;
+      }
+      // The camera may have stopped while the model was loading.
+      if (!streamRef.current) return;
+      setCameraOn(true);
+      setGesture('Show one hand to camera');
+      scheduleFrame();
+    } catch (modelError) {
+      console.error(modelError);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setError(`Hand tracking could not load (${modelError.message}). Restart HandTap and try again.`);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => () => stopCamera(), [stopCamera]);
+  useEffect(() => () => {
+    stopCamera();
+    workerRef.current?.terminate();
+    workerRef.current = null;
+  }, [stopCamera]);
+
+  useEffect(() => {
+    desktop?.getHotkey().then(setHotkey);
+    return desktop?.onToggleControl(() => {
+      if (streamRef.current) setControlOn((value) => !value);
+    });
+  }, []);
 
   return (
     <main className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/">
+        <div className="brand">
           <span className="brand-mark"><Hand size={21} strokeWidth={2.5} /></span>
           <span>hand<span>tap</span></span>
-        </a>
+        </div>
         <div className="topbar-actions">
           <span className="privacy-pill"><span className="privacy-dot" /> Camera stays on this device</span>
-          <button className="icon-button" aria-label="Help"><CircleHelp size={20} /></button>
+          <button
+            className="icon-button"
+            aria-label="Help"
+            aria-expanded={helpOpen}
+            aria-controls="help-panel"
+            onClick={() => setHelpOpen((value) => !value)}
+          >
+            <CircleHelp size={20} />
+          </button>
         </div>
       </header>
+
+      {helpOpen && (
+        <section id="help-panel" className="help-panel" aria-label="Help">
+          <h2>Getting good results</h2>
+          <ul>
+            <li>Sit about an arm's length from the camera, with your whole hand in good light.</li>
+            <li>Moving your hand inside the dashed box moves the cursor across your whole screen.</li>
+            <li>If taps are missed, raise the sensitivity. If clicks fire by accident, lower it.</li>
+            <li>To get the regular mouse back, lower your hand out of view{hotkey ? ` or press ${hotkey}` : ''}.</li>
+            <li>While mouse control is on, sticking out your tongue scrolls down the window under the cursor.</li>
+            <li>Keybinds press a keyboard shortcut when you make a movement. A fast cursor move can count as a swipe, so only give swipes a shortcut if you want them.</li>
+          </ul>
+        </section>
+      )}
 
       <section className="hero">
         <div className="hero-copy">
           <div className="eyebrow"><Sparkles size={15} /> Accessible interaction</div>
           <h1>Click with a<br /><em>simple tap.</em></h1>
-          <p>Use your camera to turn a thumb-and-index finger tap into a click. No mouse or touchpad required.</p>
+          <p>Use your camera to move the mouse with your hand, and tap your thumb and index finger to click. No mouse or touchpad required.</p>
           <div className="how-it-works">
             <div className="step"><span>1</span><div><strong>Start your camera</strong><small>Allow access when asked</small></div></div>
-            <div className="step"><span>2</span><div><strong>Tap thumb + index</strong><small>Hold briefly, then release</small></div></div>
-            <div className="step"><span>3</span><div><strong>See it click</strong><small>Works on the demo below</small></div></div>
+            <div className="step"><span>2</span><div><strong>Tap thumb + index</strong><small>Try it on the test button below</small></div></div>
+            <div className="step"><span>3</span><div><strong>Turn on mouse control</strong><small>Your hand now moves the real cursor</small></div></div>
           </div>
         </div>
 
@@ -377,42 +392,79 @@ function App() {
             <div><span className={`status-dot ${cameraOn ? 'live' : ''}`} /> {cameraOn ? 'Camera active' : 'Camera preview'}</div>
             <span className="live-label">{cameraOn ? 'LIVE' : 'READY'}</span>
           </div>
-          <div className="camera-view">
-            <video ref={videoRef} className={cameraOn ? 'visible' : ''} playsInline muted />
+          <div ref={viewRef} className="camera-view">
+            <video
+              ref={videoRef}
+              className={cameraOn ? 'visible' : ''}
+              playsInline
+              muted
+              // Match the preview to the camera's shape so the overlay lines up with the hand.
+              // Chromium reports a placeholder size at first, so this can't be read once at startup.
+              onResize={({ currentTarget: { videoWidth, videoHeight } }) => {
+                viewRef.current.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
+              }}
+            />
             <canvas ref={canvasRef} />
+            {cameraOn && (
+              <div
+                className="reach-zone"
+                aria-hidden="true"
+                style={{
+                  left: `${REACH_ZONE.left * 100}%`,
+                  right: `${(1 - REACH_ZONE.right) * 100}%`,
+                  top: `${REACH_ZONE.top * 100}%`,
+                  bottom: `${(1 - REACH_ZONE.bottom) * 100}%`,
+                }}
+              />
+            )}
             <div ref={cursorRef} className="fake-cursor" aria-hidden="true"><MousePointer2 size={26} /></div>
             {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={28} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
             {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
           </div>
-          {error && <div className="error-message"><AlertCircle size={16} /> {error}</div>}
-          <div className="camera-hint"><MousePointer2 size={14} /> Your real cursor follows your index finger across the screen</div>
-          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {tongueActive ? 'lick detected' : 'ready'} · {tongueLicks} licks</div>
+          {error && <div className="error-message" role="alert"><AlertCircle size={16} /> {error}</div>}
+          <div className="camera-hint"><MousePointer2 size={14} /> The dashed box is your whole screen</div>
+          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {!tongueAvailable ? 'unavailable' : tongueActive ? 'lick detected' : 'ready'} · {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div>
           <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
             {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
           </button>
+          {desktop ? (
+            <button
+              className={`control-button ${controlOn ? 'active' : ''}`}
+              aria-pressed={controlOn}
+              disabled={!cameraOn}
+              onClick={() => setControlOn((value) => !value)}
+            >
+              <Power size={15} /> {controlOn ? 'Mouse control is on' : 'Turn on mouse control'}
+              {hotkey && <kbd>{hotkey}</kbd>}
+            </button>
+          ) : (
+            <p className="camera-hint">Controlling the real mouse needs the HandTap desktop app.</p>
+          )}
         </div>
       </section>
 
       <section className="workspace">
-        <div className="section-heading"><div><p className="eyebrow">Live feedback</p><h2>Make a test click</h2></div><div className="feedback-counts"><div className="click-count"><MousePointer2 size={16} /> {clicks} clicks</div><div className="click-count lick-count"><Hand size={16} /> {tongueLicks} licks</div></div></div>
+        <div className="section-heading"><div><p className="eyebrow">Live feedback</p><h2>Make a test click</h2></div><div className="feedback-counts"><div className="click-count"><MousePointer2 size={16} /> {clicks} {clicks === 1 ? 'click' : 'clicks'}</div><div className="click-count lick-count"><Hand size={16} /> {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div></div></div>
         <div className="feedback-grid">
           <div className="demo-panel">
             <p className="panel-label">Interaction area</p>
-            <button ref={demoButtonRef} className="demo-button" onClick={() => undefined}>
-              <MousePointer2 size={23} />
-              <span>Tap here with your fingers</span>
-              <small>The button will activate when you pinch</small>
+            <button ref={demoButtonRef} className="demo-button" onClick={() => setDemoClicks((value) => value + 1)}>
+              {demoClicks > 0
+                ? <span key={demoClicks} className="demo-flash"><Check size={23} /></span>
+                : <MousePointer2 size={23} />}
+              <span>{demoClicks > 0 ? `Clicked ${demoClicks} ${demoClicks === 1 ? 'time' : 'times'}` : 'Tap your fingers to press me'}</span>
+              <small>{controlOn ? 'Move the cursor here, then tap' : 'While mouse control is off, every tap presses this button'}</small>
             </button>
-            <div className="success-note"><Check size={16} /> Pinch once to click wherever the cursor is pointing</div>
+            <div className="success-note"><Check size={16} /> Taps stay inside this app until you turn on mouse control</div>
           </div>
           <aside className="status-panel">
             <p className="panel-label">Gesture status</p>
-            <div className={`gesture-state ${gesture === 'Tap detected' ? 'detected' : ''}`}><span className="state-icon"><Hand size={22} /></span><div><strong>{gesture}</strong><small>{cameraOn ? 'Keep your hand in frame' : 'Start the camera to begin'}</small></div></div>
-            <div className="meter-row"><span>Pinch strength</span><strong>{confidence}%</strong></div>
-            <div className="meter"><span style={{ width: `${confidence}%` }} /></div>
+            <div className={`gesture-state ${gesture === 'Tap detected' ? 'detected' : ''}`}><span className="state-icon"><Hand size={22} /></span><div aria-live="polite"><strong>{gesture}</strong><small>{cameraOn ? 'Keep your hand in frame' : 'Start the camera to begin'}</small></div></div>
+            <div className="meter-row"><span>Pinch strength</span><strong>{strength}%</strong></div>
+            <div className="meter"><span style={{ width: `${strength}%` }} /></div>
             <div className="settings-title"><Settings2 size={15} /> Sensitivity <strong>{sensitivity}%</strong></div>
             <input aria-label="Gesture sensitivity" type="range" min="20" max="80" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} />
-            {nativeError && <div className="error-message"><AlertCircle size={16} /> {nativeError}</div>}
+            {nativeError && <div className="error-message" role="alert"><AlertCircle size={16} /> {nativeError}</div>}
           </aside>
         </div>
       </section>
@@ -421,10 +473,8 @@ function App() {
         bindings={bindings}
         onChange={setBinding}
         lastMovement={lastMovement}
-        sendKeysOn={sendKeysOn}
-        onToggleSendKeys={() => setSendKeysOn((value) => !value)}
-        cameraOn={cameraOn}
-        isDesktop={Boolean(window.handtapDesktop?.isDesktop)}
+        controlOn={controlOn}
+        isDesktop={Boolean(desktop)}
       />
 
       <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally on this computer.</span></footer>

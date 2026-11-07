@@ -1,52 +1,102 @@
-import { FilesetResolver, FaceLandmarker, HandLandmarker } from '@mediapipe/tasks-vision';
+import { FaceLandmarker, FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const FACE_MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
-const WASM_URL = new URL('../wasm', import.meta.url).toString();
+// Runs hand and face detection off the UI thread so the page stays responsive. This file is
+// bundled to public/hand-worker.js (see scripts/build-worker.mjs), so both URLs resolve
+// next to it to the copies in public/, and the app works offline.
+const MODEL_URL = new URL('models/hand_landmarker.task', self.location.href).toString();
+const FACE_MODEL_URL = new URL('models/face_landmarker.task', self.location.href).toString();
+const WASM_URL = new URL('wasm', self.location.href).toString();
+// The face only drives tongue gestures, which last far longer than a frame, so checking
+// less often leaves more of each frame's time for the hand that moves the cursor.
+const FACE_FRAME_INTERVAL = 3;
 let detector;
 let faceDetector;
+let frameCount = 0;
+
+// MediaPipe's loader can fail with a rejected promise nobody awaits, which would leave
+// the page waiting forever. Report it instead.
+self.addEventListener('unhandledrejection', (event) => {
+  self.postMessage({ type: 'error', message: String(event.reason?.message ?? event.reason) });
+});
+
+const vision = () => FilesetResolver.forVisionTasks(WASM_URL);
+
+async function createFaceDetector() {
+  const fileset = await vision();
+  const create = (delegate) =>
+    FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: FACE_MODEL_URL, delegate },
+      runningMode: 'VIDEO',
+      outputFaceBlendshapes: true,
+      numFaces: 1,
+    });
+  try {
+    return await create('GPU');
+  } catch (gpuError) {
+    console.warn('GPU face tracking is unavailable, using the CPU instead.', gpuError);
+    return create('CPU');
+  }
+}
+
+async function createDetector() {
+  const fileset = await vision();
+  const create = (delegate) =>
+    HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: MODEL_URL, delegate },
+      runningMode: 'VIDEO',
+      numHands: 1,
+      minHandDetectionConfidence: 0.55,
+      minHandPresenceConfidence: 0.55,
+      minTrackingConfidence: 0.55,
+    });
+  try {
+    return await create('GPU');
+  } catch (gpuError) {
+    console.warn('GPU hand tracking is unavailable, using the CPU instead.', gpuError);
+    return create('CPU');
+  }
+}
 
 self.onmessage = async (event) => {
   const { type } = event.data;
   if (type === 'init') {
     try {
-      const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-      detector = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-        runningMode: 'VIDEO',
-        numHands: 1,
-        minHandDetectionConfidence: 0.55,
-        minHandPresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55,
-      });
-      faceDetector = await FaceLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: FACE_MODEL_URL, delegate: 'GPU' },
-        runningMode: 'VIDEO',
-        outputFaceBlendshapes: true,
-        numFaces: 1,
-      });
+      detector = await createDetector();
       self.postMessage({ type: 'ready' });
     } catch (error) {
       self.postMessage({ type: 'error', message: error.message });
+      return;
+    }
+    // Loaded after the hand is ready, so a face model problem can't cost anyone the cursor.
+    try {
+      faceDetector = await createFaceDetector();
+    } catch (error) {
+      console.error(error);
+      self.postMessage({ type: 'face-unavailable' });
     }
     return;
   }
 
   if (type === 'frame' && detector) {
     const { bitmap, timestamp } = event.data;
+    let landmarks = null;
+    let face;
     try {
-      const result = detector.detectForVideo(bitmap, timestamp);
-      const faceResult = faceDetector?.detectForVideo(bitmap, timestamp);
-      self.postMessage({
-        type: 'result',
-        landmarks: result.landmarks?.[0] || null,
-        faceLandmarks: faceResult?.faceLandmarks?.[0] || null,
-        faceBlendshapes: faceResult?.faceBlendshapes?.[0]?.categories || [],
-      });
+      landmarks = detector.detectForVideo(bitmap, timestamp).landmarks?.[0] ?? null;
+      frameCount += 1;
+      if (faceDetector && frameCount % FACE_FRAME_INTERVAL === 0) {
+        const result = faceDetector.detectForVideo(bitmap, timestamp);
+        face = {
+          landmarks: result.faceLandmarks?.[0] ?? null,
+          blendshapes: result.faceBlendshapes?.[0]?.categories ?? [],
+        };
+      }
+    } catch (error) {
+      console.error(error);
     } finally {
       bitmap.close();
     }
+    // Always reply, even after a failure, so the page never waits forever on a frame.
+    self.postMessage({ type: 'result', landmarks, face });
   }
 };

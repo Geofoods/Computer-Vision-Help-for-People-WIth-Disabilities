@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { Keyboard, Power } from 'lucide-react';
+import { Keyboard } from 'lucide-react';
 import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, isPreset } from './keybinds.js';
 
 const FLASH_MS = 1200;
 
-function statusText(isDesktop, sendKeysOn) {
+function statusText(isDesktop, controlOn) {
   if (!isDesktop) return 'Sending keys needs the HandTap desktop app. You can still try the movements here.';
-  if (!sendKeysOn) return 'No keys are sent yet. Try a movement and watch its row light up, then turn on sending keys.';
-  return 'Movements with a shortcut now press it in whichever app is in front. A fast cursor move can count as a swipe, so only give swipes a shortcut if you want them.';
+  if (!controlOn) return 'Keys are only sent while mouse control is on. Until then, try a movement and watch its row light up.';
+  return 'Movements with a shortcut now press it in whichever app is in front.';
 }
 
 function BindingRow({ movement, combo, flashing, onChange }) {
@@ -60,7 +60,7 @@ function BindingRow({ movement, combo, flashing, onChange }) {
   );
 }
 
-export function KeybindSection({ bindings, onChange, lastMovement, sendKeysOn, onToggleSendKeys, cameraOn, isDesktop }) {
+export function KeybindSection({ bindings, onChange, lastMovement, controlOn, isDesktop }) {
   const [flashingId, setFlashingId] = useState(null);
 
   useEffect(() => {
@@ -81,18 +81,7 @@ export function KeybindSection({ bindings, onChange, lastMovement, sendKeysOn, o
         </div>
       </div>
       <div className="keybind-panel">
-        <p className="keybind-status">{statusText(isDesktop, sendKeysOn)}</p>
-        {isDesktop && (
-          <button
-            type="button"
-            className={`control-button ${sendKeysOn ? 'active' : ''}`}
-            aria-pressed={sendKeysOn}
-            disabled={!cameraOn}
-            onClick={onToggleSendKeys}
-          >
-            <Power size={15} /> {sendKeysOn ? 'Sending keys is on' : 'Turn on sending keys'}
-          </button>
-        )}
+        <p className="keybind-status">{statusText(isDesktop, controlOn)}</p>
         <ul className="keybind-list">
           {MOVEMENTS.map((movement) => (
             <BindingRow
