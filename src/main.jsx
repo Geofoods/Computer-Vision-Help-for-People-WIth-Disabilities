@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
-import { REACH_ZONE, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
-import { loadBindings, saveBindings } from './keybinds.js';
+import { REACH_ZONE, createDigitDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { TOGGLE_TYPING, loadBindings, saveBindings } from './keybinds.js';
 import { KeybindSection } from './KeybindSection.jsx';
+import { NumberTyping } from './NumberTyping.jsx';
 import './styles.css';
 
 const CLICK_COOLDOWN = 500;
 const SCROLL_COOLDOWN = 1200;
+const TYPED_DISPLAY_LENGTH = 24;
 // A timer rather than requestAnimationFrame, which stops when the window is hidden
 // and would freeze the mouse the moment another app covers this one.
 const FRAME_INTERVAL = 33;
@@ -52,6 +54,7 @@ function App() {
   const demoButtonRef = useRef(null);
   const pinchRef = useRef(createPinchDetector());
   const movementRef = useRef(createMovementDetector());
+  const digitRef = useRef(createDigitDetector());
   const lastScrollRef = useRef(0);
   const tongueRef = useRef(false);
   const faceLandmarksRef = useRef(null);
@@ -74,6 +77,10 @@ function App() {
   const [tongueAvailable, setTongueAvailable] = useState(true);
   const [bindings, setBindings] = useState(() => loadBindings(window.localStorage));
   const [lastMovement, setLastMovement] = useState(null);
+  const [typingOn, setTypingOn] = useState(false);
+  const [typingHotkey, setTypingHotkey] = useState(null);
+  const [armedDigit, setArmedDigit] = useState(null);
+  const [typed, setTyped] = useState('');
 
   // The detection loop runs outside React's render cycle, so it reads current values
   // from refs. Values captured in a closure would never update once the loop started.
@@ -81,6 +88,8 @@ function App() {
   sensitivityRef.current = sensitivity;
   const controlRef = useRef(controlOn);
   controlRef.current = controlOn;
+  const typingRef = useRef(typingOn);
+  typingRef.current = typingOn;
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
 
@@ -98,6 +107,8 @@ function App() {
   const resetTracking = () => {
     pinchRef.current.reset();
     movementRef.current.reset();
+    digitRef.current.reset();
+    setArmedDigit(null);
     filterXRef.current.reset();
     filterYRef.current.reset();
     cursorRef.current?.classList.remove('visible');
@@ -114,6 +125,7 @@ function App() {
     busyRef.current = false;
     setCameraOn(false);
     setControlOn(false);
+    setTypingOn(false);
     setGesture('Camera paused');
     setTongueActive(false);
     tongueRef.current = false;
@@ -139,9 +151,15 @@ function App() {
   }, []);
 
   const triggerMovement = useCallback(async (id, position) => {
+    // Number typing is made of poses, so only a swipe can mean something else while it's on.
+    if (typingRef.current && !id.startsWith('swipe')) return;
     setLastMovement({ id });
     const combo = bindingsRef.current[id];
-    if (!combo || !desktop || !controlRef.current) return;
+    if (combo === TOGGLE_TYPING) {
+      setTypingOn((value) => !value);
+      return;
+    }
+    if (typingRef.current || !combo || !desktop || !controlRef.current) return;
     setNativeError('');
     try {
       if (combo === 'Left Click') {
@@ -154,6 +172,17 @@ function App() {
       }
     } catch (keyError) {
       setNativeError(keyError.message || 'The shortcut could not be pressed.');
+    }
+  }, []);
+
+  const typeDigit = useCallback(async (digit) => {
+    setTyped((value) => (value + digit).slice(-TYPED_DISPLAY_LENGTH));
+    if (!desktop || !controlRef.current) return;
+    setNativeError('');
+    try {
+      await desktop.pressKeys(digit);
+    } catch (keyError) {
+      setNativeError(keyError.message || 'The number could not be typed.');
     }
   }, []);
 
@@ -243,7 +272,16 @@ function App() {
     // Making a bound pose can bring the index near the thumb, which shouldn't also click.
     // Unbound poses leave clicking exactly as it is for people not using keybinds.
     const poseIsBound = Boolean(pose && bindingsRef.current[pose]);
-    const { pinching, justPinched } = pinchRef.current.update(poseIsBound ? Infinity : ratio, sensitivityRef.current);
+    const typing = typingRef.current;
+    const { pinching, justPinched } = pinchRef.current.update(typing || poseIsBound ? Infinity : ratio, sensitivityRef.current);
+    if (typing) {
+      const { digit, armed } = digitRef.current.update(landmarks, aspect);
+      setArmedDigit(armed);
+      if (digit !== null) typeDigit(digit);
+    } else {
+      digitRef.current.reset();
+      setArmedDigit(null);
+    }
     const screenPosition = toScreen(smoothed);
 
     drawLandmarks(landmarks, pinching);
@@ -254,15 +292,15 @@ function App() {
       cursorRef.current.classList.add('visible');
     }
     setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
-    setGesture(pinching ? 'Tap detected' : 'Hand ready');
+    setGesture(typing ? 'Typing numbers' : pinching ? 'Tap detected' : 'Hand ready');
 
-    if (desktop && controlRef.current) desktop.moveTo(screenPosition);
+    if (desktop && controlRef.current && !typing) desktop.moveTo(screenPosition);
     if (justPinched) {
       if (bindingsRef.current.indexTap) triggerMovement('indexTap', screenPosition);
       else triggerClick(screenPosition);
     }
     if (movement) triggerMovement(movement);
-  }, [triggerClick, triggerMovement]);
+  }, [triggerClick, triggerMovement, typeDigit]);
   onLandmarksRef.current = handleLandmarks;
 
   const scheduleFrame = useCallback(() => {
@@ -345,6 +383,13 @@ function App() {
   }, [stopCamera]);
 
   useEffect(() => {
+    desktop?.getTypingHotkey().then(setTypingHotkey);
+    return desktop?.onToggleTyping(() => {
+      if (streamRef.current) setTypingOn((value) => !value);
+    });
+  }, []);
+
+  useEffect(() => {
     desktop?.getHotkey().then(setHotkey);
     return desktop?.onToggleControl(() => {
       if (streamRef.current) setControlOn((value) => !value);
@@ -381,6 +426,7 @@ function App() {
             <li>If taps are missed, raise the sensitivity. If clicks fire by accident, lower it.</li>
             <li>To get the regular mouse back, lower your hand out of view{hotkey ? ` or press ${hotkey}` : ''}.</li>
             <li>While mouse control is on, sticking out your tongue scrolls down the window under the cursor.</li>
+            <li>To type a number, hold up its fingers until it shows as ready, then close your hand. The chart under Number typing shows each pattern.</li>
             <li>Keybinds press a keyboard shortcut when you make a movement. A fast cursor move can count as a swipe, so only give swipes a shortcut if you want them.</li>
           </ul>
         </section>
@@ -479,6 +525,18 @@ function App() {
           </aside>
         </div>
       </section>
+
+      <NumberTyping
+        typingOn={typingOn}
+        onToggle={() => setTypingOn((value) => !value)}
+        cameraOn={cameraOn}
+        controlOn={controlOn}
+        isDesktop={Boolean(desktop)}
+        hotkey={typingHotkey}
+        armedDigit={armedDigit}
+        typed={typed}
+        onClear={() => setTyped('')}
+      />
 
       <KeybindSection
         bindings={bindings}
