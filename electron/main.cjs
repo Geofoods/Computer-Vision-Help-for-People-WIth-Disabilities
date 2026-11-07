@@ -1,6 +1,7 @@
 const { app, BrowserWindow, session, screen, ipcMain } = require('electron');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const { comboToKeyCodes } = require('./keys.cjs');
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 let mouseHelper;
@@ -14,13 +15,29 @@ using System.Runtime.InteropServices;
 public static class HandTapMouse {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extraInfo);
   public static void Scroll(int amount) {
     mouse_event(0x0800, 0, 0, unchecked((uint)amount), UIntPtr.Zero);
   }
 }
 '@
+# Windows reads these as numpad keys, or ignores them, without the extended-key flag.
+$extendedKeys = @(0x21..0x28) + @(0x2D, 0x2E, 0x5B) + @(0xAD..0xB3)
+function Send-Key([int]$code, [uint32]$flags) {
+  if ($extendedKeys -contains $code) { $flags = $flags -bor 1 }
+  $scan = [byte]([HandTapMouse]::MapVirtualKey($code, 0) -band 0xFF)
+  [HandTapMouse]::keybd_event([byte]$code, $scan, $flags, [UIntPtr]::Zero)
+}
 while ($line = [Console]::In.ReadLine()) {
   $command = $line | ConvertFrom-Json
+  if ($command.keys) {
+    $codes = @($command.keys)
+    foreach ($code in $codes) { Send-Key $code 0 }
+    Start-Sleep -Milliseconds 20
+    for ($i = $codes.Length - 1; $i -ge 0; $i--) { Send-Key $codes[$i] 2 }
+    continue
+  }
   [HandTapMouse]::SetCursorPos([int]$command.x, [int]$command.y) | Out-Null
   if ($command.click) {
     [HandTapMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
@@ -66,6 +83,12 @@ function writeMouseCommand(position, click = false, scroll = 0) {
 ipcMain.handle('handtap:move', (_event, position) => writeMouseCommand(position));
 ipcMain.handle('handtap:click', (_event, position) => writeMouseCommand(position, true));
 ipcMain.handle('handtap:scroll', () => writeMouseCommand({ x: 0, y: 0 }, false, 600));
+ipcMain.handle('handtap:press-keys', (_event, combo) => {
+  if (process.platform !== 'win32') throw new Error('Sending keys is currently supported on Windows.');
+  const keys = comboToKeyCodes(combo);
+  if (!mouseHelper?.stdin?.writable) throw new Error('The native mouse helper is unavailable.');
+  mouseHelper.stdin.write(`${JSON.stringify({ keys })}\n`);
+});
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();
