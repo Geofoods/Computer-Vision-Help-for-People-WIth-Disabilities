@@ -21,7 +21,9 @@ public static class HandTapMouse {
 '@
 while ($line = [Console]::In.ReadLine()) {
   $command = $line | ConvertFrom-Json
-  [HandTapMouse]::SetCursorPos([int]$command.x, [int]$command.y) | Out-Null
+  if ($command.move) {
+    [HandTapMouse]::SetCursorPos([int]$command.x, [int]$command.y) | Out-Null
+  }
   if ($command.click) {
     [HandTapMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
     [HandTapMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
@@ -58,6 +60,7 @@ function writeMouseCommand(position, click = false, scroll = 0) {
   mouseHelper.stdin.write(`${JSON.stringify({
     x: originX + Math.round(x * (width - 1)),
     y: originY + Math.round(y * (height - 1)),
+    move: true,
     click,
     scroll,
   })}\n`);
@@ -65,7 +68,10 @@ function writeMouseCommand(position, click = false, scroll = 0) {
 
 ipcMain.handle('handtap:move', (_event, position) => writeMouseCommand(position));
 ipcMain.handle('handtap:click', (_event, position) => writeMouseCommand(position, true));
-ipcMain.handle('handtap:scroll', () => writeMouseCommand({ x: 0, y: 0 }, false, 600));
+ipcMain.handle('handtap:scroll', () => {
+  if (!mouseHelper?.stdin?.writable) throw new Error('The native mouse helper is unavailable.');
+  mouseHelper.stdin.write(`${JSON.stringify({ scroll: 1200 })}\n`);
+});
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();

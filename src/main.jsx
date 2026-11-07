@@ -334,7 +334,7 @@ function App() {
           </div>
           {error && <div className="error-message"><AlertCircle size={16} /> {error}</div>}
           <div className="camera-hint"><MousePointer2 size={14} /> Your real cursor follows your index finger across the screen</div>
-          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {tongueActive ? 'lick detected' : 'ready'} · {tongueLicks} licks</div>
+          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {tongueActive ? 'scrolling down' : 'ready'} · {tongueLicks} licks</div>
           <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
             {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
           </button>
