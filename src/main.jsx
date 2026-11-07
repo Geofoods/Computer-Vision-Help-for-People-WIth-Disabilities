@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Power } from 'lucide-react';
-import { REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { HOLD_MS, REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
 import { SAMPLES_PER_TEACH, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
@@ -15,6 +15,7 @@ const CLICK_COOLDOWN = 500;
 const SCROLL_COOLDOWN = 1200;
 const TYPED_DISPLAY_LENGTH = 24;
 const TEACH_COUNTDOWN = 1500;
+const MODE_NOTICE_TIME = 1600;
 // Heads move naturally while people talk and look around, so a tilt has to be held.
 const HEAD_TILT_HOLD = 400;
 const REACH_CAPTURE_TIME = 5000;
@@ -35,6 +36,19 @@ function createWorker() {
     worker.onerror = (event) => reject(new Error(event.message || 'The hand tracking worker failed to start.'));
     worker.postMessage({ type: 'init' });
   });
+}
+
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Added straight to the DOM so a click never waits on a React render, and removes itself.
+function showClickRipple(view, cursor) {
+  if (!view || !cursor?.classList.contains('visible') || prefersReducedMotion()) return;
+  const ripple = document.createElement('span');
+  ripple.className = 'click-ripple';
+  ripple.style.left = cursor.style.left;
+  ripple.style.top = cursor.style.top;
+  ripple.addEventListener('animationend', () => ripple.remove());
+  view.append(ripple);
 }
 
 function cameraErrorMessage(error) {
@@ -99,6 +113,9 @@ function App() {
   const [soundsOn, setSoundsOn] = useState(() => loadSoundsOn(window.localStorage));
   const [armedDigit, setArmedDigit] = useState(null);
   const [typed, setTyped] = useState('');
+  const [typedCount, setTypedCount] = useState(0);
+  const [holding, setHolding] = useState(null);
+  const [modeNotice, setModeNotice] = useState(null);
   const [controlToggle, setControlToggle] = useState(() => loadControlToggle(window.localStorage, typingToggle, bindings));
   const [autoStart, setAutoStart] = useState(() => loadAutoStart(window.localStorage));
   const [reachZone, setReachZone] = useState(() => loadReachZone(window.localStorage));
@@ -150,6 +167,7 @@ function App() {
     if (wasTypingRef.current === typingOn) return;
     wasTypingRef.current = typingOn;
     if (soundsRef.current) (typingOn ? playTypingOn : playTypingOff)();
+    setModeNotice({ text: typingOn ? 'Number typing on' : 'Number typing off', on: typingOn, id: performance.now() });
   }, [typingOn]);
 
   const wasControlRef = useRef(controlOn);
@@ -157,7 +175,14 @@ function App() {
     if (wasControlRef.current === controlOn) return;
     wasControlRef.current = controlOn;
     if (soundsRef.current) (controlOn ? playControlOn : playControlOff)();
+    setModeNotice({ text: controlOn ? 'Mouse control on' : 'Mouse control off', on: controlOn, id: performance.now() });
   }, [controlOn]);
+
+  useEffect(() => {
+    if (!modeNotice) return undefined;
+    const timer = setTimeout(() => setModeNotice(null), MODE_NOTICE_TIME);
+    return () => clearTimeout(timer);
+  }, [modeNotice]);
 
   const resetTracking = () => {
     pinchRef.current.reset();
@@ -166,6 +191,8 @@ function App() {
     toggleHoldRef.current.reset();
     controlHoldRef.current.reset();
     setArmedDigit(null);
+    setHolding(null);
+    cursorRef.current?.classList.remove('pressed');
     filterXRef.current.reset();
     filterYRef.current.reset();
     cursorRef.current?.classList.remove('visible');
@@ -202,6 +229,7 @@ function App() {
     lastClickRef.current = now;
     setNativeError('');
     setClicks((value) => value + 1);
+    showClickRipple(viewRef.current, cursorRef.current);
     try {
       if (desktop && controlRef.current) {
         await desktop.clickAt(position);
@@ -252,6 +280,7 @@ function App() {
 
   const typeDigit = useCallback(async (digit) => {
     setTyped((value) => (value + digit).slice(-TYPED_DISPLAY_LENGTH));
+    setTypedCount((value) => value + 1);
     if (soundsRef.current) playDigitTyped();
     if (!desktop || !controlRef.current) return;
     setNativeError('');
@@ -381,6 +410,7 @@ function App() {
     const poseIsControlToggle = Boolean(pose) && pose === controlToggleRef.current && !typing;
     if (toggleHoldRef.current.update(poseIsToggle && !capturing, now)) setTypingOn((value) => !value);
     if (controlHoldRef.current.update(poseIsControlToggle && !capturing && Boolean(desktop), now)) setControlOn((value) => !value);
+    setHolding(toggleHoldRef.current.isHolding() ? 'typing' : controlHoldRef.current.isHolding() ? 'control' : null);
     // Making these poses can bring the index near the thumb, which shouldn't also click.
     // A closing hand reads as a pinch on real photos, so a fist never clicks.
     const poseBlocksClick = pose === 'fist' || poseIsToggle || poseIsControlToggle || Boolean(pose && bindingsRef.current[pose]);
@@ -402,6 +432,7 @@ function App() {
       cursorRef.current.style.left = `${smoothed.x * 100}%`;
       cursorRef.current.style.top = `${smoothed.y * 100}%`;
       cursorRef.current.classList.add('visible');
+      cursorRef.current.classList.toggle('pressed', pinching);
     }
     setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
     setGesture(capturing ? 'Learning your hand' : typing ? 'Typing numbers' : pinching ? 'Tap detected' : 'Hand ready');
@@ -576,7 +607,7 @@ function App() {
             <div><span className={`status-dot ${cameraOn ? 'live' : ''}`} /> {cameraOn ? 'Camera active' : 'Camera preview'}</div>
             <span className="live-label">{cameraOn ? 'Live' : 'Ready'}</span>
           </div>
-          <div ref={viewRef} className="camera-view">
+          <div ref={viewRef} className={`camera-view ${typingOn ? 'mode-typing' : controlOn ? 'mode-control' : ''}`}>
             <video
               ref={videoRef}
               className={cameraOn ? 'visible' : ''}
@@ -591,7 +622,7 @@ function App() {
             <canvas ref={canvasRef} />
             {cameraOn && (
               <div
-                className="reach-zone"
+                className={`reach-zone ${reachCapturing ? 'capturing' : ''}`}
                 aria-hidden="true"
                 style={{
                   left: `${reachZone.left * 100}%`,
@@ -601,6 +632,13 @@ function App() {
                 }}
               />
             )}
+            {holding && (
+              <div className="hold-indicator" aria-hidden="true">
+                <span>{holding === 'typing' ? `Hold to turn ${typingOn ? 'off' : 'on'} number typing` : `Hold to turn ${controlOn ? 'off' : 'on'} mouse control`}</span>
+                <i style={{ animationDuration: `${HOLD_MS}ms` }} />
+              </div>
+            )}
+            {modeNotice && <div key={modeNotice.id} className={`mode-notice ${modeNotice.on ? 'on' : ''}`} aria-hidden="true">{modeNotice.text}</div>}
             <div ref={cursorRef} className="fake-cursor" aria-hidden="true"><MousePointer2 size={20} strokeWidth={1.5} /></div>
             {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={16} strokeWidth={1.5} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
             {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
@@ -638,8 +676,8 @@ function App() {
             <h2>Make a test click</h2>
           </div>
           <div className="feedback-counts">
-            <div className="click-count"><MousePointer2 size={16} strokeWidth={1.5} /> <span>{clicks}</span> {clicks === 1 ? 'click' : 'clicks'}</div>
-            <div className="click-count lick-count"><Hand size={16} strokeWidth={1.5} /> <span>{tongueLicks}</span> {tongueLicks === 1 ? 'lick' : 'licks'}</div>
+            <div className="click-count"><MousePointer2 size={16} strokeWidth={1.5} /> <span key={clicks} className={clicks ? 'count-bump' : ''}>{clicks}</span> {clicks === 1 ? 'click' : 'clicks'}</div>
+            <div className="click-count lick-count"><Hand size={16} strokeWidth={1.5} /> <span key={tongueLicks} className={tongueLicks ? 'count-bump' : ''}>{tongueLicks}</span> {tongueLicks === 1 ? 'lick' : 'licks'}</div>
           </div>
         </div>
         <div className="feedback-grid">
@@ -699,6 +737,7 @@ function App() {
         hotkey={typingHotkey}
         armedDigit={armedDigit}
         typed={typed}
+        typedCount={typedCount}
         onClear={() => setTyped('')}
         typingToggle={typingToggle}
         onChangeToggle={setTypingToggle}

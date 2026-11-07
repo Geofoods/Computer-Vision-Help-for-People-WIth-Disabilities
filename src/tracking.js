@@ -246,7 +246,9 @@ export function createPinchDetector({ holdFrames = 2 } = {}) {
  * Fires once when something stays true for `holdMs`, and not again until it stops. Used
  * where a brief match could happen by chance, such as fingers passing while they close.
  */
-export function createHoldDetector({ holdMs = 500 } = {}) {
+export const HOLD_MS = 500;
+
+export function createHoldDetector({ holdMs = HOLD_MS } = {}) {
   let since = null;
   let fired = false;
 
@@ -261,6 +263,10 @@ export function createHoldDetector({ holdMs = 500 } = {}) {
       if (fired || now - since < holdMs) return false;
       fired = true;
       return true;
+    },
+    /** True while a hold is under way and hasn't fired yet, so it can be shown filling up. */
+    isHolding() {
+      return since !== null && !fired;
     },
     reset() {
       since = null;
