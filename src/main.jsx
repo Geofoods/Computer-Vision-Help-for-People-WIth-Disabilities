@@ -41,6 +41,7 @@ function App() {
   const [gesture, setGesture] = useState('Waiting for camera');
   const [confidence, setConfidence] = useState(0);
   const [clicks, setClicks] = useState(0);
+  const [tongueLicks, setTongueLicks] = useState(0);
   const [sensitivity, setSensitivity] = useState(50);
   const [nativeError, setNativeError] = useState('');
   const [workerReady, setWorkerReady] = useState(false);
@@ -59,13 +60,16 @@ function App() {
     const jawOpen = blendshapes.find(({ categoryName }) => categoryName === 'jawOpen')?.score || 0;
     const mouthPucker = blendshapes.find(({ categoryName }) => categoryName === 'mouthPucker')?.score || 0;
     const tongueOut = blendshapes.find(({ categoryName }) => categoryName === 'tongueOut')?.score || 0;
-    const licking = tongueOut > 0.35 || (jawOpen > 0.42 && mouthPucker > 0.12);
+    const licking = tongueOut > 0.2 || (jawOpen > 0.35 && mouthPucker > 0.08);
     const now = performance.now();
-    if (licking && !tongueRef.current && now - lastScrollRef.current > 1200) {
-      lastScrollRef.current = now;
-      window.handtapDesktop?.scrollDown?.().catch((scrollError) => {
-        setNativeError(scrollError.message || 'The desktop page could not be scrolled.');
-      });
+    if (licking && !tongueRef.current) {
+      setTongueLicks((value) => value + 1);
+      if (now - lastScrollRef.current > 1200) {
+        lastScrollRef.current = now;
+        window.handtapDesktop?.scrollDown?.().catch((scrollError) => {
+          setNativeError(scrollError.message || 'The desktop page could not be scrolled.');
+        });
+      }
     }
     tongueRef.current = licking;
   }, []);
@@ -307,7 +311,7 @@ function App() {
       </section>
 
       <section className="workspace">
-        <div className="section-heading"><div><p className="eyebrow">Live feedback</p><h2>Make a test click</h2></div><div className="click-count"><MousePointer2 size={16} /> {clicks} clicks</div></div>
+        <div className="section-heading"><div><p className="eyebrow">Live feedback</p><h2>Make a test click</h2></div><div className="feedback-counts"><div className="click-count"><MousePointer2 size={16} /> {clicks} clicks</div><div className="click-count lick-count"><Hand size={16} /> {tongueLicks} licks</div></div></div>
         <div className="feedback-grid">
           <div className="demo-panel">
             <p className="panel-label">Interaction area</p>

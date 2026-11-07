@@ -15,7 +15,7 @@ public static class HandTapMouse {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
   public static void Scroll(int amount) {
-    mouse_event(0x0800, 0, 0, unchecked((uint)amount), [UIntPtr]::Zero);
+    mouse_event(0x0800, 0, 0, unchecked((uint)amount), UIntPtr.Zero);
   }
 }
 '@
