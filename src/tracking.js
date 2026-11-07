@@ -205,6 +205,10 @@ export function headTilt(landmarks, threshold = 0.2) {
 
 /** Returns the vertical head direction, normalized by eye distance. */
 export function headPitch(landmarks, threshold = 0.35) {
+  return headPitchStrength(landmarks, threshold)?.id ?? null;
+}
+
+export function headPitchStrength(landmarks, threshold = 0.35) {
   const leftEye = landmarks?.[33];
   const rightEye = landmarks?.[263];
   const nose = landmarks?.[1];
@@ -212,8 +216,9 @@ export function headPitch(landmarks, threshold = 0.35) {
   const eyeDistance = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
   if (!eyeDistance) return null;
   const offset = (nose.y - (leftEye.y + rightEye.y) / 2) / eyeDistance;
-  if (offset < -threshold) return 'headTiltUp';
-  if (offset > threshold) return 'headTiltDown';
+  const magnitude = Math.min(1, Math.max(0, (Math.abs(offset) - threshold) / 0.8));
+  if (offset < -threshold) return { id: 'headTiltUp', intensity: magnitude };
+  if (offset > threshold) return { id: 'headTiltDown', intensity: magnitude };
   return null;
 }
 
@@ -315,6 +320,9 @@ export function createHoldDetector({ holdMs = HOLD_MS } = {}) {
     /** True while a hold is under way and hasn't fired yet, so it can be shown filling up. */
     isHolding() {
       return since !== null && !fired;
+    },
+    hasFired() {
+      return fired;
     },
     reset() {
       since = null;

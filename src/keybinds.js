@@ -44,8 +44,8 @@ export const DEFAULT_BINDINGS = {
   tongueLick: 'Scroll Down',
   headTiltLeft: 'Alt+Left',
   headTiltRight: 'Alt+Right',
-  headTiltUp: 'Page Up',
-  headTiltDown: 'Page Down',
+  headTiltUp: 'Scroll Up',
+  headTiltDown: 'Scroll Down',
   blink: 'Enter',
   winkLeft: 'Ctrl+Left',
   winkRight: 'Ctrl+Right',
@@ -68,6 +68,7 @@ export const PRESET_GROUPS = [
     presets: [
       { label: 'Left click', combo: 'Left Click' },
       { label: 'Scroll down', combo: 'Scroll Down' },
+      { label: 'Scroll up', combo: 'Scroll Up' },
       { label: 'Copy', combo: 'Ctrl+C' },
       { label: 'Paste', combo: 'Ctrl+V' },
       { label: 'Cut', combo: 'Ctrl+X' },
