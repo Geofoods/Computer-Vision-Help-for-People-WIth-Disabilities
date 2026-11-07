@@ -1785,9 +1785,61 @@ input[type='range'] {
   line-height: 16px;
 }
 
-.armed-digit strong {
+.digit-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-top: 8px;
+}
+
+.digit-ring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.digit-ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+
+.ring-track {
+  stroke: var(--hairline);
+}
+
+/* --certainty and --confidence are written every frame by the app, not by React. */
+.ring-fill {
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: calc(1 - var(--certainty, 0));
+  opacity: calc(0.35 + var(--confidence, 1) * 0.65);
+}
+
+.armed-digit.ready .ring-fill {
+  stroke: var(--positive);
+  stroke-dashoffset: 0;
+}
+
+.armed-digit.reading strong {
+  color: var(--text-muted);
+}
+
+.reading-caption {
   display: block;
   margin-top: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.armed-digit strong {
+  display: block;
   font: 500 32px/1 var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--text);
@@ -2264,6 +2316,26 @@ footer {
 .fake-cursor.pressed svg {
   transform: scale(0.72);
 }
+/* Closes in on the fingertip as a tap approaches, driven by --pinch from the frame loop. */
+.pinch-ring {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  opacity: calc(var(--pinch, 0) * 0.9);
+  transform: scale(calc(1.6 - var(--pinch, 0) * 1.1));
+  transition: border-color var(--dur-fast) var(--ease);
+}
+.fake-cursor.pressed .pinch-ring {
+  border-color: var(--positive-bright);
+}
+.ring-fill {
+  transition: stroke-dashoffset var(--dur-fast) linear, stroke var(--dur-base) var(--ease);
+}
 .click-ripple {
   position: absolute;
   z-index: 3;
@@ -2382,5 +2454,9 @@ footer {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+  /* The ring still fades in as a tap approaches, but stays still instead of closing in. */
+  .pinch-ring {
+    transform: scale(0.6);
   }
 }

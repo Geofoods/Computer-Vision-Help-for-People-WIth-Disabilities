@@ -88,6 +88,30 @@ test('without a taught shape the standard patterns still work', () => {
   assert.deepEqual([...feed(hand('pointing'), 8), ...feed(hand('fist'), 3)], ['1']);
 });
 
+test('a match reports how confident it is, closer shapes scoring higher', () => {
+  const model = createGestureModel({ 3: examples(hand('peace')) });
+  const exact = model.match(hand('peace').landmarks, hand('peace').aspect);
+  const shaky = model.match(jittered(hand('peace'), 99).landmarks, hand('peace').aspect);
+  assert.equal(exact.label, '3');
+  assert.ok(exact.confidence > 0.9, `exact ${exact.confidence}`);
+  assert.ok(shaky.confidence > 0 && shaky.confidence <= exact.confidence, `shaky ${shaky.confidence}`);
+  assert.equal(model.match(hand('openLeft').landmarks, hand('openLeft').aspect), null);
+});
+
+test('the detector reports what it sees and grows surer as a pattern is held', () => {
+  const model = createGestureModel({ 3: examples(hand('openLeft')) });
+  const detector = createDigitDetector();
+  const { landmarks, aspect } = hand('openLeft');
+  const first = detector.update(landmarks, aspect, model);
+  assert.equal(first.seen, '3');
+  assert.ok(first.certainty > 0 && first.certainty < 1);
+  assert.ok(first.confidence > 0.9);
+  for (let frame = 0; frame < 6; frame += 1) detector.update(landmarks, aspect, model);
+  assert.equal(detector.update(landmarks, aspect, model).certainty, 1);
+  const standard = createDigitDetector().update(hand('pointing').landmarks, hand('pointing').aspect, model);
+  assert.equal(standard.confidence, null);
+});
+
 test('teaching again keeps the newest examples, and forgetting removes only that label', () => {
   let samples = {};
   for (let round = 0; round < 3; round += 1) samples = addSamples(samples, '1', examples(hand('peace')));
