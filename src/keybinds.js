@@ -20,6 +20,8 @@ const isToggle = (id) => TYPING_TOGGLES.some((toggle) => toggle.id === id);
 export const MOVEMENTS = [
   { id: 'indexTap', label: 'Tap thumb + index', hint: 'Touch your thumb to your index finger' },
   { id: 'tongueLick', label: 'Tongue lick', hint: 'Stick out your tongue briefly' },
+  { id: 'headTiltLeft', label: 'Tilt head left', hint: 'Tilt your head to the left' },
+  { id: 'headTiltRight', label: 'Tilt head right', hint: 'Tilt your head to the right' },
   { id: 'swipeLeft', label: 'Swipe left', hint: 'Sweep your hand quickly to the left' },
   { id: 'swipeRight', label: 'Swipe right', hint: 'Sweep your hand quickly to the right' },
   { id: 'swipeUp', label: 'Swipe up', hint: 'Sweep your hand quickly upward' },
@@ -32,6 +34,15 @@ export const MOVEMENTS = [
 export const DEFAULT_BINDINGS = {
   indexTap: 'Left Click',
   tongueLick: 'Scroll Down',
+  headTiltLeft: 'Alt+Left',
+  headTiltRight: 'Alt+Right',
+  swipeLeft: 'Left',
+  swipeRight: 'Right',
+  swipeUp: 'Up',
+  swipeDown: 'Down',
+  fist: 'Esc',
+  middleTap: 'Ctrl+C',
+  ringTap: 'Ctrl+V',
 };
 
 // Listed so nobody has to physically press a shortcut, which may be the reason they use this app.
@@ -164,6 +175,11 @@ export function loadBindings(storage) {
   return bindings;
 }
 
+/** Whether someone chose a shortcut for this movement, as opposed to it having a default. */
+export function hasOwnShortcut(bindings, id) {
+  return Boolean(bindings[id]) && bindings[id] !== DEFAULT_BINDINGS[id];
+}
+
 /**
  * The movement that toggles number typing, or '' for none. New setups get a tap that no
  * shortcut is using, so the feature works hands-free without anyone setting it up first.
@@ -175,7 +191,7 @@ export function loadTypingToggle(storage) {
     const saved = JSON.parse(storage.getItem(STORAGE_KEY)) ?? {};
     const old = TYPING_TOGGLES.find(({ id }) => saved[id] === OLD_TOGGLE_COMBO);
     if (old) return old.id;
-    return ['ringTap', 'middleTap'].find((id) => !saved[id]) ?? '';
+    return ['ringTap', 'middleTap'].find((id) => !hasOwnShortcut(saved, id)) ?? '';
   } catch (error) {
     console.warn('Could not load the number typing toggle.', error);
     return 'ringTap';

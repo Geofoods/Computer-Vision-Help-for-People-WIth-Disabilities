@@ -1,7 +1,7 @@
 // Saved setup choices. Storage can be empty, blocked or hold anything, so every load has
 // a safe answer and nothing here can stop the app from starting.
 import { REACH_ZONE } from './tracking.js';
-import { TYPING_TOGGLES } from './keybinds.js';
+import { TYPING_TOGGLES, hasOwnShortcut } from './keybinds.js';
 
 const REACH_KEY = 'handtap.reachZone';
 const AUTO_START_KEY = 'handtap.autoStart';
@@ -41,7 +41,7 @@ export function loadControlToggle(storage, typingToggle, bindings) {
   const stored = read(storage, CONTROL_TOGGLE_KEY);
   if (stored === '') return '';
   if (TYPING_TOGGLES.some(({ id }) => id === stored) && stored !== typingToggle) return stored;
-  return ['middleTap', 'ringTap'].find((id) => id !== typingToggle && !bindings[id]) ?? '';
+  return ['middleTap', 'ringTap'].find((id) => id !== typingToggle && !hasOwnShortcut(bindings, id)) ?? '';
 }
 
 export function loadGestureSamples(storage) {

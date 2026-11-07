@@ -189,6 +189,21 @@ export function isLicking(blendshapes) {
 }
 
 /**
+ * Which way the person is tilting their own head once the eye line passes a safe angle.
+ * The camera image isn't mirrored here, so their right eye (33) is on the image's left,
+ * and tilting toward their right shoulder lowers it.
+ */
+export function headTilt(landmarks, threshold = 0.2) {
+  const leftEye = landmarks?.[33];
+  const rightEye = landmarks?.[263];
+  if (!leftEye || !rightEye) return null;
+  const angle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
+  if (angle > threshold) return 'headTiltLeft';
+  if (angle < -threshold) return 'headTiltRight';
+  return null;
+}
+
+/**
  * Pinch state machine. The release threshold sits above the press threshold so a
  * hand hovering near the boundary can't fire repeated clicks, and a press must last
  * `holdFrames` frames so a single-frame tracking glitch doesn't click anything.

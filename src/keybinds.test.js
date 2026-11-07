@@ -168,6 +168,10 @@ test('a default action can be turned off, and stays off', () => {
   assert.equal(loadBindings(storage).indexTap, 'Left Click');
 });
 
+test('a default shortcut does not stop a thumb tap being the toggle', () => {
+  assert.equal(loadTypingToggle(memoryStorage({ 'handtap.keybinds': JSON.stringify({ ringTap: 'Ctrl+V', middleTap: 'Ctrl+C' }) })), 'ringTap');
+});
+
 test('number typing starts on a thumb tap that no shortcut is using', () => {
   const withBindings = (bindings) => memoryStorage({ 'handtap.keybinds': JSON.stringify(bindings) });
   assert.equal(loadTypingToggle(memoryStorage()), 'ringTap');
@@ -178,7 +182,8 @@ test('number typing starts on a thumb tap that no shortcut is using', () => {
 test('a toggle set the old way carries over, and stops being a shortcut', () => {
   const storage = memoryStorage({ 'handtap.keybinds': JSON.stringify({ swipeUp: 'NumberTyping', fist: 'Enter' }) });
   assert.equal(loadTypingToggle(storage), 'swipeUp');
-  assert.deepEqual(loadBindings(storage), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Enter' });
+  assert.equal(loadBindings(storage).swipeUp, 'Up');
+  assert.equal(loadBindings(storage).fist, 'Enter');
 });
 
 test('number typing preferences survive a save and load, including turning the toggle off', () => {
@@ -201,13 +206,61 @@ test('a fist cannot toggle number typing, and bad or failing storage has a safe 
 test('bindings survive a save and load', () => {
   const storage = memoryStorage();
   saveBindings(storage, { fist: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(storage), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Ctrl+C' });
+  assert.deepEqual(loadBindings(storage), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Ctrl+C',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
 });
 
 test('loadBindings ignores unknown movements, bad values, and corrupt or failing storage', () => {
   const saved = JSON.stringify({ fist: 'Enter', ringTap: 7, teleport: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Enter' });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), { indexTap: 'Left Click', tongueLick: 'Scroll Down' });
-  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), { indexTap: 'Left Click', tongueLick: 'Scroll Down' });
-  assert.equal(MOVEMENTS.length, 9);
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Enter',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Esc',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
+  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Esc',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
+  assert.equal(MOVEMENTS.length, 11);
 });
