@@ -142,6 +142,17 @@ test('a hold fires once after its time, and again only after letting go', () => 
   assert.equal(hold.update(true, 2700), true);
 });
 
+test('a hold reports itself as under way only until it fires', () => {
+  const hold = createHoldDetector({ holdMs: 500 });
+  assert.equal(hold.isHolding(), false);
+  hold.update(true, 0);
+  assert.equal(hold.isHolding(), true);
+  hold.update(true, 500);
+  assert.equal(hold.isHolding(), false);
+  hold.update(false, 600);
+  assert.equal(hold.isHolding(), false);
+});
+
 test('letting go early restarts a hold', () => {
   const hold = createHoldDetector({ holdMs: 500 });
   hold.update(true, 0);

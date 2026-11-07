@@ -91,6 +91,7 @@ export function NumberTyping({
   hotkey,
   armedDigit,
   typed,
+  typedCount = 0,
   onClear,
   typingToggle,
   onChangeToggle,
@@ -153,11 +154,11 @@ export function NumberTyping({
         <div className="typing-readout">
           <div className={`armed-digit ${armedDigit !== null ? 'ready' : ''}`}>
             <small>Ready to type</small>
-            <strong>{armedDigit ?? '–'}</strong>
+            <strong key={armedDigit ?? 'none'} className={armedDigit !== null ? 'digit-pop' : ''}>{armedDigit ?? '–'}</strong>
           </div>
           <div className="typed-output">
             <small>Typed</small>
-            <output aria-live="polite">{typed || '–'}</output>
+            <output aria-live="polite">{typed ? <>{typed.slice(0, -1)}<span key={typedCount} className="typed-new">{typed.slice(-1)}</span></> : '–'}</output>
             {typed && (
               <DualLayerButton
                 type="button"
@@ -172,6 +173,10 @@ export function NumberTyping({
         </div>
         <p className="typing-how">Hold a pattern until it shows above, then close your fingers into a fist to type it.</p>
         <p className="teach-status" aria-live="polite">{teachText(teaching, labelOf)}</p>
+        <div className={`progress-track ${teaching ? 'on' : ''}`} aria-hidden="true">
+          {teaching?.status === 'ready' && <i className="progress-run countdown" />}
+          {teaching?.status === 'recording' && <i style={{ transform: `scaleX(${teaching.percent / 100})` }} />}
+        </div>
 
         <div className="fluid-grid-stage" {...containerProps}>
           <FluidHoverHighlight hover={hover} className="digit-hover-pill" />
