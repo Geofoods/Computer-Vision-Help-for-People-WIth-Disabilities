@@ -423,7 +423,7 @@ function App() {
           </div>
           {error && <div className="error-message" role="alert"><AlertCircle size={16} /> {error}</div>}
           <div className="camera-hint"><MousePointer2 size={14} /> The dashed box is your whole screen</div>
-          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {!tongueAvailable ? 'unavailable' : tongueActive ? 'lick detected' : 'ready'} · {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div>
+          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {!tongueAvailable ? 'unavailable' : tongueActive ? (controlOn ? 'scrolling down' : 'lick detected') : 'ready'} · {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div>
           <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
             {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
           </button>
