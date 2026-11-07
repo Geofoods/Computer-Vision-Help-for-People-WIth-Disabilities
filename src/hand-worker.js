@@ -12,6 +12,7 @@ const FACE_FRAME_INTERVAL = 3;
 let detector;
 let faceDetector;
 let frameCount = 0;
+let activeDelegate = 'GPU';
 
 // MediaPipe's loader can fail with a rejected promise nobody awaits, which would leave
 // the page waiting forever. Report it instead.
@@ -50,9 +51,12 @@ async function createDetector() {
       minTrackingConfidence: 0.55,
     });
   try {
-    return await create('GPU');
+    const instance = await create('GPU');
+    activeDelegate = 'GPU';
+    return instance;
   } catch (gpuError) {
     console.warn('GPU hand tracking is unavailable, using the CPU instead.', gpuError);
+    activeDelegate = 'CPU';
     return create('CPU');
   }
 }
@@ -62,7 +66,7 @@ self.onmessage = async (event) => {
   if (type === 'init') {
     try {
       detector = await createDetector();
-      self.postMessage({ type: 'ready' });
+      self.postMessage({ type: 'ready', delegate: activeDelegate });
     } catch (error) {
       self.postMessage({ type: 'error', message: error.message });
       return;
@@ -81,6 +85,7 @@ self.onmessage = async (event) => {
     const { bitmap, timestamp } = event.data;
     let landmarks = null;
     let face;
+    const t0 = performance.now();
     try {
       landmarks = detector.detectForVideo(bitmap, timestamp).landmarks?.[0] ?? null;
       frameCount += 1;
@@ -96,7 +101,8 @@ self.onmessage = async (event) => {
     } finally {
       bitmap.close();
     }
+    const inferenceMs = Math.round((performance.now() - t0) * 10) / 10;
     // Always reply, even after a failure, so the page never waits forever on a frame.
-    self.postMessage({ type: 'result', landmarks, face });
+    self.postMessage({ type: 'result', landmarks, face, inferenceMs, delegate: activeDelegate });
   }
 };
