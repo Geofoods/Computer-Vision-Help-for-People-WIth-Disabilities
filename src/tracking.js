@@ -320,6 +320,10 @@ export function createHoldDetector({ holdMs = HOLD_MS } = {}) {
       fired = true;
       return true;
     },
+    progress(now) {
+      if (since === null || fired) return 0;
+      return clamp01((now - since) / holdMs);
+    },
     /** True while a hold is under way and hasn't fired yet, so it can be shown filling up. */
     isHolding() {
       return since !== null && !fired;
@@ -399,6 +403,13 @@ export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
       if (seen !== null && candidateCount >= holdFrames) armed = seen;
       return { digit: null, armed };
     },
+    progress() {
+      return {
+        candidate,
+        ratio: candidate !== null && candidate !== armed ? clamp01(candidateCount / holdFrames) : 0,
+        armed,
+      };
+    },
     reset() {
       armed = null;
       candidate = null;
@@ -408,11 +419,19 @@ export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
   };
 }
 
+export const FILTER_PROFILES = {
+  steady: { id: 'steady', label: 'Tremor Dampened', minCutoff: 0.6, beta: 0.02, derivativeCutoff: 0.8 },
+  balanced: { id: 'balanced', label: 'Balanced', minCutoff: 1.2, beta: 0.05, derivativeCutoff: 1.0 },
+  agile: { id: 'agile', label: 'High Speed / Agile', minCutoff: 2.0, beta: 0.12, derivativeCutoff: 1.5 },
+};
+
 /**
  * One Euro filter: smooths heavily when the hand is nearly still, which removes
  * jitter, and lightly when it moves fast, which avoids lag.
  */
-export function createOneEuroFilter({ minCutoff = 1.2, beta = 0.05, derivativeCutoff = 1 } = {}) {
+export function createOneEuroFilter(options = {}) {
+  const profile = typeof options === 'string' ? FILTER_PROFILES[options] : options;
+  const { minCutoff = 1.2, beta = 0.05, derivativeCutoff = 1 } = profile || {};
   const alpha = (cutoff, dt) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
   let previous = null;
 

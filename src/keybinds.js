@@ -67,6 +67,9 @@ export const PRESET_GROUPS = [
     label: 'Editing',
     presets: [
       { label: 'Left click', combo: 'Left Click' },
+      { label: 'Right click', combo: 'Right Click' },
+      { label: 'Double click', combo: 'Double Click' },
+      { label: 'Hold or release drag', combo: 'Toggle Drag' },
       { label: 'Scroll down', combo: 'Scroll Down' },
       { label: 'Scroll up', combo: 'Scroll Up' },
       { label: 'Copy', combo: 'Ctrl+C' },

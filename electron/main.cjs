@@ -15,9 +15,6 @@ const { createMouse } = require('./mouse.cjs');
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const TOGGLE_HOTKEY = 'CommandOrControl+Alt+H';
 const TYPING_HOTKEY = 'CommandOrControl+Alt+N';
-const OVERLAY_WIDTH = 320;
-const OVERLAY_HEIGHT = 64;
-const OVERLAY_MARGIN = 20;
 
 // Hand tracking has to keep running while another app is in front, since that's
 // the app the user is trying to control.
@@ -27,13 +24,32 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 const mouse = createMouse();
 let mainWindow = null;
 let overlayWindow = null;
-let overlayStatus = { gesture: 'Waiting for camera', mode: 'HandTap', live: false };
 let hotkeyRegistered = false;
 let typingHotkeyRegistered = false;
 
 ipcMain.handle('handtap:click', (_event, position) => mouse.click(position));
-ipcMain.handle('handtap:scroll', (_event, amount) => amount === undefined ? mouse.scrollDown() : mouse.scrollBy(amount));
+ipcMain.handle('handtap:right-click', (_event, position) => mouse.rightClick(position));
+ipcMain.handle('handtap:double-click', (_event, position) => mouse.doubleClick(position));
+ipcMain.handle('handtap:toggle-drag', (_event, position) => mouse.toggleDrag(position));
+ipcMain.handle('handtap:release-drag', () => mouse.releaseDrag());
+ipcMain.handle('handtap:scroll', (_event, amount) =>
+  amount === undefined ? mouse.scrollDown() : mouse.scrollBy(amount),
+);
+ipcMain.handle('handtap:scroll-up', () => mouse.scrollUp());
 ipcMain.handle('handtap:press-keys', (_event, combo) => mouse.pressKeys(combo));
+ipcMain.handle('handtap:system-status', () => ({
+  uptime: process.uptime(),
+  memory: {
+    heapUsed: process.memoryUsage().heapUsed,
+    heapTotal: process.memoryUsage().heapTotal,
+    rss: process.memoryUsage().rss,
+  },
+  helperRunning: Boolean(mouse.isHelperRunning?.() ?? false),
+  dragging: Boolean(mouse.isDragging?.() ?? false),
+  platform: process.platform,
+  version: '0.1.0',
+}));
+
 ipcMain.on('handtap:move', (_event, position) => {
   try {
     mouse.move(position);
@@ -41,84 +57,64 @@ ipcMain.on('handtap:move', (_event, position) => {
     console.warn(error.message);
   }
 });
+
+ipcMain.on('handtap:emit-aura', (_event, payload) => {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('handtap:overlay-aura', payload);
+  }
+});
+
+ipcMain.on('handtap:sync-overlay', (_event, state) => {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('handtap:overlay-state', state);
+  }
+});
+
 ipcMain.handle('handtap:hotkey', () => (hotkeyRegistered ? 'Ctrl + Alt + H' : null));
 ipcMain.handle('handtap:typing-hotkey', () => (typingHotkeyRegistered ? 'Ctrl + Alt + N' : null));
 
-// The renderer knows the live gesture; this keeps the corner window in step.
-ipcMain.on('handtap:overlay-status', (_event, status) => {
-  if (!status || typeof status.gesture !== 'string') return;
-  overlayStatus = {
-    gesture: status.gesture.slice(0, 80),
-    mode: typeof status.mode === 'string' ? status.mode.slice(0, 80) : 'HandTap',
-    live: Boolean(status.live),
-  };
-  overlayWindow?.webContents.send('handtap:overlay-status', overlayStatus);
-});
-
-function overlayBounds() {
-  const { workArea } = screen.getPrimaryDisplay();
-  return {
-    x: workArea.x + OVERLAY_MARGIN,
-    y: workArea.y + workArea.height - OVERLAY_HEIGHT - OVERLAY_MARGIN,
-    width: OVERLAY_WIDTH,
-    height: OVERLAY_HEIGHT,
-  };
-}
-
-// A small always-on-top window in the screen's bottom-left corner, so the live
-// gesture stays visible while the user works in another app.
 function createOverlayWindow() {
-  if (overlayWindow) return;
+  const display = screen.getPrimaryDisplay();
+  const { x, y, width, height } = display.bounds;
   overlayWindow = new BrowserWindow({
-    ...overlayBounds(),
-    frame: false,
+    x,
+    y,
+    width,
+    height,
     transparent: true,
-    backgroundColor: '#00000000',
-    hasShadow: false,
+    frame: false,
+    focusable: false,
     resizable: false,
     movable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
     skipTaskbar: true,
-    focusable: false,
-    show: false,
+    hasShadow: false,
     alwaysOnTop: true,
     webPreferences: {
-      preload: path.join(__dirname, 'overlay-preload.cjs'),
+      preload: path.join(__dirname, 'preload-overlay.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
   });
-  // Clicks pass straight through to whatever app is underneath.
-  overlayWindow.setIgnoreMouseEvents(true);
   overlayWindow.setAlwaysOnTop(true, 'screen-saver');
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-  overlayWindow.once('ready-to-show', () => overlayWindow?.showInactive());
-  overlayWindow.webContents.on('did-finish-load', () => {
-    overlayWindow?.webContents.send('handtap:overlay-status', overlayStatus);
-  });
+  overlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  overlayWindow.loadFile(path.join(__dirname, 'overlay.html'));
   overlayWindow.on('closed', () => {
     overlayWindow = null;
   });
-  overlayWindow.loadFile(path.join(__dirname, 'overlay.html'));
-}
-
-function positionOverlayWindow() {
-  overlayWindow?.setBounds(overlayBounds());
 }
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();
   const { width, height } = display.workAreaSize;
   mainWindow = new BrowserWindow({
-    width: Math.min(1240, Math.max(980, width - 120)),
-    height: Math.min(900, Math.max(720, height - 90)),
+    width: Math.min(1320, Math.max(980, width - 96)),
+    height: Math.min(920, Math.max(720, height - 72)),
     minWidth: 860,
     minHeight: 680,
     title: 'HandTap',
-    backgroundColor: '#f7f4ee',
+    backgroundColor: '#171717',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -130,8 +126,9 @@ function createWindow() {
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
-    // The overlay is part of the main window's UI; don't let it keep the app alive.
-    overlayWindow?.close();
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      overlayWindow.close();
+    }
   });
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -148,10 +145,6 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
   createOverlayWindow();
-  // Keep the overlay in the corner when the taskbar, resolution, or displays change.
-  screen.on('display-metrics-changed', positionOverlayWindow);
-  screen.on('display-added', positionOverlayWindow);
-  screen.on('display-removed', positionOverlayWindow);
   mouse.warmUp();
   // The keyboard way out when the hand is driving the real mouse.
   hotkeyRegistered = globalShortcut.register(TOGGLE_HOTKEY, () => {
