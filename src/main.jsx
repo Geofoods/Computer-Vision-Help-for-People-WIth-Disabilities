@@ -1,18 +1,97 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Power } from 'lucide-react';
-import { HOLD_MS, REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchProgress, pinchRatio, toScreen } from './tracking.js';
-import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
-import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
-import { SAMPLES_PER_TEACH, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
-import { loadAutoStart, loadControlToggle, loadGestureSamples, loadReachZone, saveAutoStart, saveControlToggle, saveGestureSamples, saveReachZone } from './preferences.js';
+import { AnimatePresence, MotionConfig, motion } from 'motion/react';
+import {
+  Hand,
+  Camera,
+  MousePointer2,
+  Settings2,
+  CircleHelp,
+  Check,
+  AlertCircle,
+  Power,
+  Sparkles,
+} from 'lucide-react';
+import {
+  FILTER_PROFILES,
+  HOLD_MS,
+  REACH_ZONE,
+  computeReachZone,
+  createDigitDetector,
+  createFaceGestureDetector,
+  createHoldDetector,
+  createMovementDetector,
+  createOneEuroFilter,
+  createPinchDetector,
+  cursorPoint,
+  headPitch,
+  headPitchStrength,
+  headTilt,
+  isLicking,
+  pinchProgress,
+  pinchRatio,
+  toScreen,
+} from './tracking.js';
+import {
+  MOVEMENTS,
+  loadBindings,
+  loadSoundsOn,
+  loadTypingToggle,
+  saveBindings,
+  saveTypingPreferences,
+} from './keybinds.js';
+import {
+  playControlOff,
+  playControlOn,
+  playDigitTyped,
+  playTypingOff,
+  playTypingOn,
+} from './sounds.js';
+import {
+  SAMPLES_PER_TEACH,
+  addSamples,
+  createGestureModel,
+  forgetLabel,
+  handFeatures,
+} from './gesture-model.js';
+import {
+  loadAutoStart,
+  loadControlToggle,
+  loadFilterProfile,
+  loadGestureSamples,
+  loadOverlayEnabled,
+  loadReachZone,
+  loadSensitivity,
+  loadShape,
+  loadTheme,
+  saveAutoStart,
+  saveControlToggle,
+  saveFilterProfile,
+  saveGestureSamples,
+  saveOverlayEnabled,
+  saveReachZone,
+  saveSensitivity,
+  saveShape,
+  saveTheme,
+} from './preferences.js';
 import { KeybindSection } from './KeybindSection.jsx';
 import { NumberTyping } from './NumberTyping.jsx';
 import { SetupPanel } from './SetupPanel.jsx';
+import { GravityField } from './GravityField.jsx';
+import { HudFrame } from './components/HudFrame.jsx';
+import { ModuleIndex } from './components/ModuleIndex.jsx';
+import { DualLayerButton } from './components/DualLayerButton.jsx';
+import { TelemetryHud } from './components/TelemetryHud.jsx';
+import { VisionAura } from './components/VisionAura.jsx';
+import { ScrollSection } from './components/ScrollSection.jsx';
+import { FluidHoverHighlight } from './components/FluidHoverHighlight.jsx';
+import { useFluidHover } from './hooks/useFluidHover.js';
+import { spring } from './lib/springs.js';
 import './styles.css';
 
 const CLICK_COOLDOWN = 500;
 const SCROLL_COOLDOWN = 1200;
+const CONTROL_TOGGLE_HOLD = 1000;
 const TYPED_DISPLAY_LENGTH = 24;
 const TEACH_COUNTDOWN = 1500;
 const MODE_NOTICE_TIME = 1600;
@@ -22,18 +101,25 @@ const REACH_CAPTURE_TIME = 5000;
 // A timer rather than requestAnimationFrame, which stops when the window is hidden
 // and would freeze the mouse the moment another app covers this one.
 const FRAME_INTERVAL = 33;
+const OVERLAY_SYNC_INTERVAL = 85;
 const desktop = window.handtapDesktop;
+
+const HERO_STEPS = [
+  { key: '1', title: 'Start your camera', detail: 'Runs locally on your device' },
+  { key: '2', title: 'Tap thumb and index', detail: 'Feel the spatial aura respond' },
+  { key: '3', title: 'Engage mouse control', detail: 'Move and click in any window' },
+];
 
 // Starts the detection worker and resolves once its model has loaded.
 function createWorker() {
   return new Promise((resolve, reject) => {
-    // Resolved next to index.html, where the bundled worker is served in dev and in the build.
     const worker = new Worker(new URL('hand-worker.js', window.location.href));
     worker.onmessage = ({ data }) => {
-      if (data.type === 'ready') resolve(worker);
+      if (data.type === 'ready') resolve({ worker, delegate: data.delegate || 'GPU' });
       else if (data.type === 'error') reject(new Error(data.message));
     };
-    worker.onerror = (event) => reject(new Error(event.message || 'The hand tracking worker failed to start.'));
+    worker.onerror = (event) =>
+      reject(new Error(event.message || 'The hand tracking worker failed to start.'));
     worker.postMessage({ type: 'init' });
   });
 }
@@ -52,9 +138,15 @@ function showClickRipple(view, cursor) {
 }
 
 function cameraErrorMessage(error) {
-  if (error.name === 'NotAllowedError') return 'Camera permission was denied. Allow camera access and try again.';
-  if (error.name === 'NotFoundError') return 'No camera was found. Connect a camera and try again, or restart HandTap if one is already connected.';
-  if (error.name === 'NotReadableError') return 'Another app is using the camera. Close it and try again.';
+  if (error.name === 'NotAllowedError') {
+    return 'Camera permission was denied. Allow camera access and try again.';
+  }
+  if (error.name === 'NotFoundError') {
+    return 'No camera was found. Connect a camera and try again, or restart HandTap if one is already connected.';
+  }
+  if (error.name === 'NotReadableError') {
+    return 'Another app is using the camera. Close it and try again.';
+  }
   return 'We could not start the camera. Check camera permissions and try again.';
 }
 
@@ -64,43 +156,62 @@ function App() {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const workerRef = useRef(null);
-  // True while a frame is out with the worker, so frames are dropped rather than queued.
   const busyRef = useRef(false);
   const onLandmarksRef = useRef(() => {});
   const onFaceRef = useRef(() => {});
   const timerRef = useRef(null);
-  // Starts at 0 so the placeholder frame shown before the camera's first real frame is skipped.
   const lastVideoTimeRef = useRef(0);
   const cursorRef = useRef(null);
-  // The number typing readout, where what the AI is reading is shown as it reads it.
-  const readoutRef = useRef(null);
   const lastClickRef = useRef(0);
   const demoButtonRef = useRef(null);
   const pinchRef = useRef(createPinchDetector());
   const movementRef = useRef(createMovementDetector());
   const digitRef = useRef(createDigitDetector());
   const toggleHoldRef = useRef(createHoldDetector());
-  const controlHoldRef = useRef(createHoldDetector());
-  // Set while learning from the hand. Nothing else acts on the hand during these.
+  const controlHoldRef = useRef(createHoldDetector({ holdMs: CONTROL_TOGGLE_HOLD }));
   const teachRef = useRef(null);
   const reachCaptureRef = useRef(null);
   const lastScrollRef = useRef(0);
   const lastPositionRef = useRef(null);
+  const pointerNormRef = useRef({ x: 0.5, y: 0.36 });
   const tongueRef = useRef(false);
   const headTiltRef = useRef(null);
   const headTiltHoldRef = useRef(createHoldDetector({ holdMs: HEAD_TILT_HOLD }));
+  const headScrollRef = useRef({ id: null, last: 0 });
+  const faceGestureRef = useRef(createFaceGestureDetector());
   const faceLandmarksRef = useRef(null);
-  const filterXRef = useRef(createOneEuroFilter());
-  const filterYRef = useRef(createOneEuroFilter());
+  const lastResultAtRef = useRef(0);
+  const fpsEmaRef = useRef(0);
+  const inferenceEmaRef = useRef(0);
+  const lastTelemetryCommitRef = useRef(0);
+  const lastOverlaySyncRef = useRef(0);
+  const auraCounterRef = useRef(0);
+
+  const [theme, setTheme] = useState(() => loadTheme(window.localStorage));
+  const [shape, setShape] = useState(() => loadShape(window.localStorage));
+  const [overlayEnabled, setOverlayEnabled] = useState(() =>
+    loadOverlayEnabled(window.localStorage),
+  );
+  const [filterProfile, setFilterProfile] = useState(() =>
+    loadFilterProfile(window.localStorage),
+  );
+  const filterXRef = useRef(
+    createOneEuroFilter(FILTER_PROFILES[loadFilterProfile(window.localStorage)]),
+  );
+  const filterYRef = useRef(
+    createOneEuroFilter(FILTER_PROFILES[loadFilterProfile(window.localStorage)]),
+  );
+
   const [cameraOn, setCameraOn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [gesture, setGesture] = useState('Waiting for camera');
   const [strength, setStrength] = useState(0);
   const [clicks, setClicks] = useState(0);
-  const [sensitivity, setSensitivity] = useState(50);
+  const [sensitivity, setSensitivity] = useState(() => loadSensitivity(window.localStorage));
   const [nativeError, setNativeError] = useState('');
   const [controlOn, setControlOn] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const [hotkey, setHotkey] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [demoClicks, setDemoClicks] = useState(0);
@@ -116,21 +227,37 @@ function App() {
   const [armedDigit, setArmedDigit] = useState(null);
   const [seenDigit, setSeenDigit] = useState(null);
   const [seenTaught, setSeenTaught] = useState(false);
+  // The number typing readout, where what the AI is reading is shown as it reads it.
+  const readoutRef = useRef(null);
   const [typed, setTyped] = useState('');
   const [typedCount, setTypedCount] = useState(0);
   const [holding, setHolding] = useState(null);
   const [modeNotice, setModeNotice] = useState(null);
-  const [controlToggle, setControlToggle] = useState(() => loadControlToggle(window.localStorage, typingToggle, bindings));
+  const [controlToggle, setControlToggle] = useState(() =>
+    loadControlToggle(window.localStorage, typingToggle, bindings),
+  );
   const [autoStart, setAutoStart] = useState(() => loadAutoStart(window.localStorage));
   const [reachZone, setReachZone] = useState(() => loadReachZone(window.localStorage));
   const [reachCapturing, setReachCapturing] = useState(false);
   const [reachMessage, setReachMessage] = useState('');
-  const [gestureSamples, setGestureSamples] = useState(() => loadGestureSamples(window.localStorage));
+  const [gestureSamples, setGestureSamples] = useState(() =>
+    loadGestureSamples(window.localStorage),
+  );
+  const [handsDetected, setHandsDetected] = useState(0);
   const [teaching, setTeaching] = useState(null);
+  const [handPoint, setHandPoint] = useState(null);
+
+  // Real measured telemetry & VisionOS spatial aura states
+  const [liveFps, setLiveFps] = useState(0);
+  const [inferenceMs, setInferenceMs] = useState(0);
+  const [delegateName, setDelegateName] = useState('GPU');
+  const [auraEvent, setAuraEvent] = useState(null);
+  const [pulseCount, setPulseCount] = useState(0);
+  const [dwellState, setDwellState] = useState({ progress: 0, label: '' });
+
+  const stepsHover = useFluidHover({ axis: 'x', nearest: true });
   const gestureModel = useMemo(() => createGestureModel(gestureSamples), [gestureSamples]);
 
-  // The detection loop runs outside React's render cycle, so it reads current values
-  // from refs. Values captured in a closure would never update once the loop started.
   const sensitivityRef = useRef(sensitivity);
   sensitivityRef.current = sensitivity;
   const controlRef = useRef(controlOn);
@@ -149,38 +276,125 @@ function App() {
   soundsRef.current = soundsOn;
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
+  const overlayEnabledRef = useRef(overlayEnabled);
+  overlayEnabledRef.current = overlayEnabled;
+  const draggingRef = useRef(dragging);
+  draggingRef.current = dragging;
+
+  const fireAura = useCallback(({ x, y, kind = 'click', label = 'Action', detail = '' }) => {
+    auraCounterRef.current += 1;
+    const target = {
+      x: Number.isFinite(x) ? x : lastPositionRef.current?.x ?? pointerNormRef.current.x,
+      y: Number.isFinite(y) ? y : lastPositionRef.current?.y ?? pointerNormRef.current.y,
+    };
+    const payload = {
+      id: auraCounterRef.current,
+      x: target.x,
+      y: target.y,
+      kind,
+      label,
+      detail,
+    };
+    setAuraEvent(payload);
+    setPulseCount((c) => c + 1);
+    if (desktop && overlayEnabledRef.current && controlRef.current) {
+      desktop.emitAura({ x: target.x, y: target.y, kind, label });
+    }
+  }, []);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      const w = window.innerWidth || 1;
+      const h = window.innerHeight || 1;
+      pointerNormRef.current = { x: e.clientX / w, y: e.clientY / h };
+    };
+    window.addEventListener('pointermove', onMove, { passive: true });
+    return () => window.removeEventListener('pointermove', onMove);
+  }, []);
+
+  // Synchronize Fluid Functionalism theme & concentric shape attributes on <html>
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.style.colorScheme = theme;
+    saveTheme(window.localStorage, theme);
+  }, [theme]);
+
+  useEffect(() => {
+    document.documentElement.dataset.shape = shape;
+    saveShape(window.localStorage, shape);
+  }, [shape]);
+
+  useEffect(() => {
+    saveOverlayEnabled(window.localStorage, overlayEnabled);
+    if (!overlayEnabled) {
+      desktop?.syncOverlay?.({ visible: false });
+    }
+  }, [overlayEnabled]);
 
   const setBinding = useCallback((id, combo) => {
-    setBindings((current) => {
-      const next = { ...current };
-      next[id] = combo;
-      return next;
-    });
+    setBindings((current) => ({ ...current, [id]: combo }));
   }, []);
 
   useEffect(() => saveBindings(window.localStorage, bindings), [bindings]);
-  useEffect(() => saveTypingPreferences(window.localStorage, typingToggle, soundsOn), [typingToggle, soundsOn]);
+  useEffect(
+    () => saveTypingPreferences(window.localStorage, typingToggle, soundsOn),
+    [typingToggle, soundsOn],
+  );
   useEffect(() => saveControlToggle(window.localStorage, controlToggle), [controlToggle]);
   useEffect(() => saveAutoStart(window.localStorage, autoStart), [autoStart]);
-  useEffect(() => saveReachZone(window.localStorage, reachZone === REACH_ZONE ? null : reachZone), [reachZone]);
+  useEffect(
+    () => saveReachZone(window.localStorage, reachZone === REACH_ZONE ? null : reachZone),
+    [reachZone],
+  );
   useEffect(() => saveGestureSamples(window.localStorage, gestureSamples), [gestureSamples]);
+  useEffect(() => saveSensitivity(window.localStorage, sensitivity), [sensitivity]);
+  useEffect(() => saveFilterProfile(window.localStorage, filterProfile), [filterProfile]);
+  useEffect(() => {
+    const profile = FILTER_PROFILES[filterProfile] || FILTER_PROFILES.balanced;
+    filterXRef.current = createOneEuroFilter(profile);
+    filterYRef.current = createOneEuroFilter(profile);
+  }, [filterProfile]);
 
-  // Covers every way of toggling, and is the only sign of it from inside another app.
   const wasTypingRef = useRef(typingOn);
   useEffect(() => {
     if (wasTypingRef.current === typingOn) return;
     wasTypingRef.current = typingOn;
     if (soundsRef.current) (typingOn ? playTypingOn : playTypingOff)();
-    setModeNotice({ text: typingOn ? 'Number typing on' : 'Number typing off', on: typingOn, id: performance.now() });
-  }, [typingOn]);
+    setModeNotice({
+      text: typingOn ? 'Number typing on' : 'Number typing off',
+      on: typingOn,
+      id: performance.now(),
+    });
+    fireAura({
+      kind: 'toggle',
+      label: typingOn ? 'Number typing on' : 'Number typing paused',
+      detail: typingOn ? 'Hold fingers to arm' : 'Cursor ready',
+    });
+  }, [typingOn, fireAura]);
 
   const wasControlRef = useRef(controlOn);
   useEffect(() => {
     if (wasControlRef.current === controlOn) return;
     wasControlRef.current = controlOn;
     if (soundsRef.current) (controlOn ? playControlOn : playControlOff)();
-    setModeNotice({ text: controlOn ? 'Mouse control on' : 'Mouse control off', on: controlOn, id: performance.now() });
-  }, [controlOn]);
+    if (!controlOn && draggingRef.current) {
+      desktop?.releaseDrag?.();
+      setDragging(false);
+    }
+    if (!controlOn) {
+      desktop?.syncOverlay?.({ visible: false });
+    }
+    setModeNotice({
+      text: controlOn ? 'Mouse control on' : 'Mouse control off',
+      on: controlOn,
+      id: performance.now(),
+    });
+    fireAura({
+      kind: 'toggle',
+      label: controlOn ? 'Mouse control active' : 'Mouse control paused',
+      detail: controlOn ? 'Desktop cursor live' : 'In-window practice',
+    });
+  }, [controlOn, fireAura]);
 
   useEffect(() => {
     if (!modeNotice) return undefined;
@@ -209,9 +423,11 @@ function App() {
     controlHoldRef.current.reset();
     setArmedDigit(null);
     showReading(null);
+    cursorRef.current?.style.setProperty('--pinch', 0);
+    setHandPoint(null);
+    setDwellState({ progress: 0, label: '' });
     setHolding(null);
     cursorRef.current?.classList.remove('pressed');
-    cursorRef.current?.style.setProperty('--pinch', 0);
     filterXRef.current.reset();
     filterYRef.current.reset();
     cursorRef.current?.classList.remove('visible');
@@ -225,15 +441,28 @@ function App() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     lastVideoTimeRef.current = 0;
+    lastResultAtRef.current = 0;
+    fpsEmaRef.current = 0;
+    inferenceEmaRef.current = 0;
     busyRef.current = false;
+    if (draggingRef.current) {
+      desktop?.releaseDrag?.();
+      setDragging(false);
+    }
+    desktop?.syncOverlay?.({ visible: false });
     setCameraOn(false);
+    setHandsDetected(0);
     setControlOn(false);
     setTypingOn(false);
+    setLiveFps(0);
+    setInferenceMs(0);
     setGesture('Camera paused');
     setTongueActive(false);
     tongueRef.current = false;
     headTiltRef.current = null;
     headTiltHoldRef.current.reset();
+    headScrollRef.current = { id: null, last: 0 };
+    faceGestureRef.current.reset();
     faceLandmarksRef.current = null;
     teachRef.current = null;
     setTeaching(null);
@@ -242,98 +471,193 @@ function App() {
     resetTracking();
   }, []);
 
-  const triggerClick = useCallback(async (position) => {
-    const now = performance.now();
-    if (now - lastClickRef.current < CLICK_COOLDOWN) return;
-    lastClickRef.current = now;
-    setNativeError('');
-    setClicks((value) => value + 1);
-    showClickRipple(viewRef.current, cursorRef.current);
-    try {
-      if (desktop && controlRef.current) {
-        await desktop.clickAt(position);
-      } else {
-        demoButtonRef.current?.click();
-      }
-    } catch (clickError) {
-      setNativeError(clickError.message || 'The desktop click could not be completed.');
-    }
-  }, []);
-
-  const triggerMovement = useCallback(async (id, position) => {
-    // Learning from the hand shouldn't press anything, including from the face.
-    if (teachRef.current || reachCaptureRef.current) return;
-    // Number typing is made of poses, so only a swipe can mean something else while it's on.
-    if (typingRef.current && !id.startsWith('swipe')) return;
-    setLastMovement({ id });
-    // A tap used as a toggle is handled as a hold in handleLandmarks instead.
-    if (id === typingToggleRef.current) {
-      if (id.startsWith('swipe')) setTypingOn((value) => !value);
-      return;
-    }
-    if (id === controlToggleRef.current) {
-      if (id.startsWith('swipe') && desktop && !typingRef.current) setControlOn((value) => !value);
-      return;
-    }
-    const combo = bindingsRef.current[id];
-    if (typingRef.current || !combo) return;
-    // Handled here, ahead of the check below, because a click with mouse control off still
-    // presses the test button. A movement with no position of its own uses the cursor's.
-    if (combo === 'Left Click') {
-      const target = position ?? lastPositionRef.current;
-      if (target) triggerClick(target);
-      return;
-    }
-    if (!desktop || !controlRef.current) return;
-    setNativeError('');
-    try {
-      if (combo === 'Scroll Down') {
-        await desktop.scrollDown();
-      } else {
-        await desktop.pressKeys(combo);
-      }
-    } catch (keyError) {
-      setNativeError(keyError.message || 'The shortcut could not be pressed.');
-    }
-  }, [triggerClick]);
-
-  const typeDigit = useCallback(async (digit) => {
-    setTyped((value) => (value + digit).slice(-TYPED_DISPLAY_LENGTH));
-    setTypedCount((value) => value + 1);
-    if (soundsRef.current) playDigitTyped();
-    if (!desktop || !controlRef.current) return;
-    setNativeError('');
-    try {
-      await desktop.pressKeys(digit);
-    } catch (keyError) {
-      setNativeError(keyError.message || 'The number could not be typed.');
-    }
-  }, []);
-
-  const handleFace = useCallback(({ landmarks, blendshapes }) => {
-    const licking = isLicking(blendshapes);
-    faceLandmarksRef.current = landmarks;
-    const tilt = headTilt(landmarks);
-    if (tilt !== headTiltRef.current) {
-      headTiltRef.current = tilt;
-      headTiltHoldRef.current.reset();
-    }
-    if (headTiltHoldRef.current.update(Boolean(tilt), performance.now())) triggerMovement(tilt);
-    setTongueActive(licking);
-    if (licking && !tongueRef.current) {
-      setTongueLicks((value) => value + 1);
+  const triggerClick = useCallback(
+    async (position) => {
       const now = performance.now();
-      if (desktop && controlRef.current && now - lastScrollRef.current > SCROLL_COOLDOWN) {
-        lastScrollRef.current = now;
-        triggerMovement('tongueLick');
+      if (now - lastClickRef.current < CLICK_COOLDOWN) return;
+      lastClickRef.current = now;
+      setNativeError('');
+      setClicks((value) => value + 1);
+      showClickRipple(viewRef.current, cursorRef.current);
+      fireAura({
+        x: position?.x,
+        y: position?.y,
+        kind: 'click',
+        label: 'Left click',
+        detail: controlRef.current ? 'Desktop' : 'Practice target',
+      });
+      try {
+        if (desktop && controlRef.current) {
+          await desktop.clickAt(position);
+        } else {
+          demoButtonRef.current?.click();
+        }
+      } catch (clickError) {
+        setNativeError(clickError.message || 'The desktop click could not be completed.');
       }
-    }
-    tongueRef.current = licking;
-  }, [triggerMovement]);
+    },
+    [fireAura],
+  );
+
+  const triggerMovement = useCallback(
+    async (id, position, intensity = 1) => {
+      if (teachRef.current || reachCaptureRef.current) return;
+      if (typingRef.current && !id.startsWith('swipe')) return;
+      setLastMovement({ id, at: performance.now() });
+
+      if (id === typingToggleRef.current) {
+        if (id.startsWith('swipe')) setTypingOn((value) => !value);
+        return;
+      }
+      if (id === controlToggleRef.current) {
+        if (id.startsWith('swipe') && desktop && !typingRef.current) {
+          if (!controlRef.current) setControlOn(true);
+        }
+        return;
+      }
+
+      const combo = bindingsRef.current[id];
+      if (typingRef.current || !combo) return;
+
+      const target = position ?? lastPositionRef.current ?? { x: 0.5, y: 0.5 };
+
+      if (combo === 'Left Click') {
+        triggerClick(target);
+        return;
+      }
+
+      const movementLabel = MOVEMENTS.find((m) => m.id === id)?.label ?? id;
+
+      if (!desktop || !controlRef.current) {
+        fireAura({
+          x: target.x,
+          y: target.y,
+          kind: 'shortcut',
+          label: combo,
+          detail: `${movementLabel} · practice`,
+        });
+        return;
+      }
+
+      setNativeError('');
+      try {
+        if (combo === 'Right Click') {
+          fireAura({ x: target.x, y: target.y, kind: 'click', label: 'Right click' });
+          await desktop.rightClickAt(target);
+        } else if (combo === 'Double Click') {
+          fireAura({ x: target.x, y: target.y, kind: 'click', label: 'Double click' });
+          await desktop.doubleClickAt(target);
+        } else if (combo === 'Toggle Drag') {
+          const result = await desktop.toggleDragAt(target);
+          const nextDrag = typeof result === 'boolean' ? result : Boolean(result?.dragging);
+          setDragging(nextDrag);
+          fireAura({
+            x: target.x,
+            y: target.y,
+            kind: 'drag',
+            label: nextDrag ? 'Drag locked' : 'Drag released',
+            detail: nextDrag ? 'Move hand to drag' : 'Button released',
+          });
+        } else if (combo === 'Scroll Down' || combo === 'Scroll Up') {
+          const direction = combo === 'Scroll Down' ? -1 : 1;
+          const sensitivityFactor = 0.25 + (sensitivityRef.current / 100) * 0.75;
+          const amount = direction * Math.max(8, Math.round(48 * sensitivityFactor));
+          fireAura({
+            x: target.x,
+            y: target.y,
+            kind: 'scroll',
+            label: combo === 'Scroll Down' ? 'Scroll down' : 'Scroll up',
+          });
+          if (intensity < 1 || id === 'headTiltUp' || id === 'headTiltDown') {
+            await desktop.scrollBy(amount);
+          } else if (combo === 'Scroll Down') {
+            await desktop.scrollDown();
+          } else if (desktop.scrollUp) {
+            await desktop.scrollUp();
+          } else {
+            await desktop.scrollBy(amount);
+          }
+        } else {
+          fireAura({
+            x: target.x,
+            y: target.y,
+            kind: 'shortcut',
+            label: combo,
+            detail: movementLabel,
+          });
+          await desktop.pressKeys(combo);
+        }
+      } catch (keyError) {
+        setNativeError(keyError.message || 'The shortcut could not be pressed.');
+      }
+    },
+    [fireAura, triggerClick],
+  );
+
+  const typeDigit = useCallback(
+    async (digit) => {
+      setTyped((value) => (value + digit).slice(-TYPED_DISPLAY_LENGTH));
+      setTypedCount((value) => value + 1);
+      if (soundsRef.current) playDigitTyped();
+      fireAura({
+        x: lastPositionRef.current?.x,
+        y: lastPositionRef.current?.y,
+        kind: 'digit',
+        label: `Typed ${digit}`,
+        detail: controlRef.current ? 'Sent to active window' : 'Practice buffer',
+      });
+      if (!desktop || !controlRef.current) return;
+      setNativeError('');
+      try {
+        await desktop.pressKeys(digit);
+      } catch (keyError) {
+        setNativeError(keyError.message || 'The number could not be typed.');
+      }
+    },
+    [fireAura],
+  );
+
+  const handleFace = useCallback(
+    ({ landmarks, blendshapes }) => {
+      const licking = isLicking(blendshapes);
+      faceLandmarksRef.current = landmarks;
+      const pitch = headPitchStrength(landmarks);
+      const tilt = headTilt(landmarks) ?? pitch?.id ?? null;
+      if (tilt !== headTiltRef.current) {
+        headTiltRef.current = tilt;
+        headTiltHoldRef.current.reset();
+      }
+      const now = performance.now();
+      if (headTiltHoldRef.current.update(Boolean(tilt), now)) {
+        triggerMovement(tilt, undefined, pitch?.intensity ?? 1);
+      }
+      if (pitch && headTiltHoldRef.current.hasFired() && now - headScrollRef.current.last >= 120) {
+        headScrollRef.current = { id: pitch.id, last: now };
+        triggerMovement(pitch.id, undefined, pitch.intensity);
+      }
+      for (const faceGesture of faceGestureRef.current.update(blendshapes)) {
+        triggerMovement(faceGesture);
+      }
+      setTongueActive(licking);
+      if (licking && !tongueRef.current) {
+        setTongueLicks((value) => value + 1);
+        if (desktop && controlRef.current && now - lastScrollRef.current > SCROLL_COOLDOWN) {
+          lastScrollRef.current = now;
+          triggerMovement('tongueLick');
+        } else if (!controlRef.current) {
+          fireAura({
+            kind: 'scroll',
+            label: 'Tongue gesture',
+            detail: 'Turn on mouse control to scroll',
+          });
+        }
+      }
+      tongueRef.current = licking;
+    },
+    [fireAura, triggerMovement],
+  );
   onFaceRef.current = handleFace;
 
-  // Drawn after the hand, which clears the canvas, on every frame so it doesn't flicker
-  // between the less frequent face results.
   const drawMouth = () => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -341,10 +665,12 @@ function App() {
     if (!canvas || !video || !landmarks) return;
     if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
     if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
-    const [upperLip, lowerLip, leftCorner, rightCorner] = [13, 14, 61, 291].map((index) => landmarks[index]);
+    const [upperLip, lowerLip, leftCorner, rightCorner] = [13, 14, 61, 291].map(
+      (index) => landmarks[index],
+    );
     const context = canvas.getContext('2d');
-    context.strokeStyle = tongueRef.current ? '#4cc38a' : '#e5a00d';
-    context.lineWidth = 4;
+    context.strokeStyle = tongueRef.current ? '#4cc38a' : '#6b97ff';
+    context.lineWidth = 3.5;
     context.beginPath();
     context.ellipse(
       ((leftCorner.x + rightCorner.x) / 2) * canvas.width,
@@ -358,7 +684,7 @@ function App() {
     context.stroke();
   };
 
-  const drawLandmarks = (landmarks, pinching) => {
+  const drawLandmarks = (landmarks, pinching, otherLandmarks = null) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
@@ -366,113 +692,265 @@ function App() {
     if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
     if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = '#efe9de';
+    context.fillStyle = '#f4f6fa';
     landmarks.forEach(({ x, y }) => {
       context.beginPath();
-      context.arc(x * canvas.width, y * canvas.height, 4, 0, Math.PI * 2);
+      context.arc(x * canvas.width, y * canvas.height, 3.8, 0, Math.PI * 2);
       context.fill();
     });
     const thumb = landmarks[4];
     const index = landmarks[8];
-    context.strokeStyle = pinching ? '#4cc38a' : '#e5a00d';
+    context.strokeStyle = pinching ? '#4cc38a' : '#6b97ff';
     context.lineWidth = 3;
     context.beginPath();
     context.moveTo(thumb.x * canvas.width, thumb.y * canvas.height);
     context.lineTo(index.x * canvas.width, index.y * canvas.height);
     context.stroke();
+    if (otherLandmarks) {
+      context.fillStyle = '#7dd3fc';
+      otherLandmarks.forEach(({ x, y }) => {
+        context.beginPath();
+        context.arc(x * canvas.width, y * canvas.height, 4, 0, Math.PI * 2);
+        context.fill();
+      });
+      context.strokeStyle = '#7dd3fc';
+      context.beginPath();
+      context.moveTo(otherLandmarks[4].x * canvas.width, otherLandmarks[4].y * canvas.height);
+      context.lineTo(otherLandmarks[8].x * canvas.width, otherLandmarks[8].y * canvas.height);
+      context.stroke();
+    }
   };
 
-  const handleLandmarks = useCallback((landmarks, now) => {
-    const video = videoRef.current;
-    if (!landmarks) {
-      setGesture('Show one hand to camera');
-      resetTracking();
+  const handleLandmarks = useCallback(
+    (landmarks, now, otherLandmarks = null) => {
+      const video = videoRef.current;
+      if (!landmarks) {
+        setGesture('Show one hand to camera');
+        resetTracking();
+        drawMouth();
+        if (desktop && overlayEnabledRef.current && controlRef.current) {
+          desktop.syncOverlay({
+            visible: true,
+            controlOn: true,
+            typingOn: typingRef.current,
+            dragging: draggingRef.current,
+            armedDigit: null,
+            holdProgress: 0,
+            gesture: 'Hand out of view',
+          });
+        }
+        return;
+      }
+
+      const point = cursorPoint(landmarks);
+      const smoothed = {
+        x: filterXRef.current.filter(point.x, now),
+        y: filterYRef.current.filter(point.y, now),
+      };
+      const aspect = video.videoWidth / video.videoHeight;
+      const ratio = pinchRatio(landmarks, aspect);
+
+      const teach = teachRef.current;
+      if (teach && now >= teach.startsAt) {
+        const features = handFeatures(landmarks, aspect);
+        if (features) teach.samples.push(features);
+        setTeaching({
+          label: teach.label,
+          status: 'recording',
+          percent: Math.round((teach.samples.length / SAMPLES_PER_TEACH) * 100),
+        });
+        if (teach.samples.length >= SAMPLES_PER_TEACH) {
+          teachRef.current = null;
+          setTeaching(null);
+          setGestureSamples((current) => addSamples(current, teach.label, teach.samples));
+          if (soundsRef.current) playDigitTyped();
+          fireAura({
+            x: smoothed.x,
+            y: smoothed.y,
+            kind: 'digit',
+            label: 'Hand shape learned',
+          });
+        }
+      }
+      const reach = reachCaptureRef.current;
+      if (reach) {
+        // Capture the raw hand position so smoothing cannot shrink a person's usable range.
+        reach.points.push(point);
+        if (now >= reach.until) {
+          const zone = computeReachZone(reach.points);
+          reachCaptureRef.current = null;
+          setReachCapturing(false);
+          if (zone) setReachZone(zone);
+          setReachMessage(
+            zone
+              ? 'Done. This space now covers your whole screen.'
+              : 'That was a very small movement. Try moving a little further, or check your hand stays in view.',
+          );
+          if (zone && soundsRef.current) playDigitTyped();
+          if (zone) {
+            fireAura({
+              x: smoothed.x,
+              y: smoothed.y,
+              kind: 'toggle',
+              label: 'Reach calibrated',
+            });
+          }
+        }
+      }
+      const capturing = Boolean(teachRef.current || reachCaptureRef.current);
+
+      const { movement, pose } = movementRef.current.update(landmarks, {
+        aspect,
+        now,
+        sensitivity: sensitivityRef.current,
+      });
+      const typing = typingRef.current;
+      const poseIsToggle = Boolean(pose) && pose === typingToggleRef.current;
+      const poseIsControlToggle =
+        Boolean(pose) && pose === controlToggleRef.current && !typing;
+
+      if (toggleHoldRef.current.update(poseIsToggle && !capturing, now)) {
+        setTypingOn((value) => !value);
+      }
+      if (
+        controlHoldRef.current.update(
+          poseIsControlToggle && !capturing && Boolean(desktop),
+          now,
+        ) &&
+        !controlRef.current
+      ) {
+        setControlOn(true);
+      }
+      setHolding(
+        toggleHoldRef.current.isHolding()
+          ? 'typing'
+          : controlHoldRef.current.isHolding()
+            ? 'control'
+            : null,
+      );
+
+      const poseBlocksClick =
+        pose === 'fist' ||
+        poseIsToggle ||
+        poseIsControlToggle ||
+        Boolean(pose && bindingsRef.current[pose]);
+      const clickBlocked = typing || capturing || poseBlocksClick;
+      const { pinching, justPinched } = pinchRef.current.update(
+        clickBlocked ? Infinity : ratio,
+        sensitivityRef.current,
+      );
+
+      let currentArmed = null;
+      if (typing && !poseIsToggle && !capturing) {
+        // When available, type from the second hand so the cursor hand remains independent.
+        const digitLandmarks = otherLandmarks ?? landmarks;
+        const reading = digitRef.current.update(digitLandmarks, aspect, gestureModelRef.current);
+        currentArmed = reading.armed;
+        setArmedDigit(reading.armed);
+        showReading(reading);
+        if (reading.digit !== null) typeDigit(reading.digit);
+      } else {
+        digitRef.current.reset();
+        setArmedDigit(null);
+        showReading(null);
+      }
+
+      // Compute continuous VisionOS dwell progress across active hold detectors
+      const toggleProg = toggleHoldRef.current.progress(now);
+      const ctrlProg = controlHoldRef.current.progress(now);
+      const tiltProg = headTiltHoldRef.current.progress(now);
+      const digitProg = typing ? digitRef.current.progress() : { ratio: 0, candidate: null };
+
+      let activeDwell = 0;
+      let activeDwellLabel = '';
+      if (toggleProg > activeDwell) {
+        activeDwell = toggleProg;
+        activeDwellLabel = typing ? 'Pause typing' : 'Number typing';
+      }
+      if (ctrlProg > activeDwell) {
+        activeDwell = ctrlProg;
+        activeDwellLabel = controlRef.current ? 'Pause mouse' : 'Mouse control';
+      }
+      if (tiltProg > activeDwell) {
+        activeDwell = tiltProg;
+        activeDwellLabel = 'Head shortcut';
+      }
+      if (digitProg.ratio > activeDwell && digitProg.candidate) {
+        activeDwell = digitProg.ratio;
+        activeDwellLabel = `Arming ${digitProg.candidate}`;
+      }
+      setDwellState({ progress: activeDwell, label: activeDwellLabel });
+
+      const screenPosition = toScreen(smoothed, reachZoneRef.current);
+      lastPositionRef.current = screenPosition;
+      setHandPoint(smoothed);
+
+      drawLandmarks(landmarks, pinching, otherLandmarks);
       drawMouth();
-      return;
-    }
-
-    const point = cursorPoint(landmarks);
-    const smoothed = { x: filterXRef.current.filter(point.x, now), y: filterYRef.current.filter(point.y, now) };
-    const aspect = video.videoWidth / video.videoHeight;
-    const ratio = pinchRatio(landmarks, aspect);
-
-    const teach = teachRef.current;
-    if (teach && now >= teach.startsAt) {
-      const features = handFeatures(landmarks, aspect);
-      if (features) teach.samples.push(features);
-      setTeaching({ label: teach.label, status: 'recording', percent: Math.round((teach.samples.length / SAMPLES_PER_TEACH) * 100) });
-      if (teach.samples.length >= SAMPLES_PER_TEACH) {
-        teachRef.current = null;
-        setTeaching(null);
-        setGestureSamples((current) => addSamples(current, teach.label, teach.samples));
-        if (soundsRef.current) playDigitTyped();
+      if (cursorRef.current) {
+        cursorRef.current.style.left = `${smoothed.x * 100}%`;
+        cursorRef.current.style.top = `${smoothed.y * 100}%`;
+        cursorRef.current.classList.add('visible');
+        cursorRef.current.classList.toggle('pressed', pinching);
+        // The ring closes in as the fingers approach a tap, so people can see how close they are.
+        cursorRef.current.style.setProperty(
+          '--pinch',
+          clickBlocked ? 0 : pinchProgress(ratio, sensitivityRef.current).toFixed(3),
+        );
       }
-    }
-    const reach = reachCaptureRef.current;
-    if (reach) {
-      reach.points.push(smoothed);
-      if (now >= reach.until) {
-        const zone = computeReachZone(reach.points);
-        reachCaptureRef.current = null;
-        setReachCapturing(false);
-        if (zone) setReachZone(zone);
-        setReachMessage(zone ? 'Done. This space now covers your whole screen.' : 'That was a very small movement. Try moving a little further, or check your hand stays in view.');
-        if (zone && soundsRef.current) playDigitTyped();
+      setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
+      const nextGestureLabel = capturing
+        ? 'Learning your hand'
+        : typing
+          ? 'Typing numbers'
+          : draggingRef.current
+            ? 'Dragging item'
+            : pinching
+              ? 'Tap detected'
+              : 'Hand ready';
+      setGesture(nextGestureLabel);
+
+      // Number typing must not freeze the cursor hand. With one visible hand it also
+      // remains the typing hand, preserving the original single-hand workflow.
+      if (desktop && controlRef.current && !capturing) {
+        desktop.moveTo(screenPosition);
       }
-    }
-    // Learning from the hand shouldn't also click, type or move the mouse.
-    const capturing = Boolean(teachRef.current || reachCaptureRef.current);
+      if (justPinched) triggerMovement('indexTap', screenPosition);
+      if (movement && !capturing) triggerMovement(movement, screenPosition);
 
-    const { movement, pose } = movementRef.current.update(landmarks, { aspect, now, sensitivity: sensitivityRef.current });
-    const typing = typingRef.current;
-    const poseIsToggle = Boolean(pose) && pose === typingToggleRef.current;
-    const poseIsControlToggle = Boolean(pose) && pose === controlToggleRef.current && !typing;
-    if (toggleHoldRef.current.update(poseIsToggle && !capturing, now)) setTypingOn((value) => !value);
-    if (controlHoldRef.current.update(poseIsControlToggle && !capturing && Boolean(desktop), now)) setControlOn((value) => !value);
-    setHolding(toggleHoldRef.current.isHolding() ? 'typing' : controlHoldRef.current.isHolding() ? 'control' : null);
-    // Making these poses can bring the index near the thumb, which shouldn't also click.
-    // A closing hand reads as a pinch on real photos, so a fist never clicks.
-    const poseBlocksClick = pose === 'fist' || poseIsToggle || poseIsControlToggle || Boolean(pose && bindingsRef.current[pose]);
-    const clickBlocked = typing || capturing || poseBlocksClick;
-    const { pinching, justPinched } = pinchRef.current.update(clickBlocked ? Infinity : ratio, sensitivityRef.current);
-    if (typing && !poseIsToggle && !capturing) {
-      const reading = digitRef.current.update(landmarks, aspect, gestureModelRef.current);
-      setArmedDigit(reading.armed);
-      showReading(reading);
-      if (reading.digit !== null) typeDigit(reading.digit);
-    } else {
-      digitRef.current.reset();
-      setArmedDigit(null);
-      showReading(null);
-    }
-    const screenPosition = toScreen(smoothed, reachZoneRef.current);
-    lastPositionRef.current = screenPosition;
-
-    drawLandmarks(landmarks, pinching);
-    drawMouth();
-    if (cursorRef.current) {
-      cursorRef.current.style.left = `${smoothed.x * 100}%`;
-      cursorRef.current.style.top = `${smoothed.y * 100}%`;
-      cursorRef.current.classList.add('visible');
-      cursorRef.current.classList.toggle('pressed', pinching);
-      // The ring closes in as the fingers approach a tap, so people can see how close they are.
-      cursorRef.current.style.setProperty('--pinch', clickBlocked ? 0 : pinchProgress(ratio, sensitivityRef.current).toFixed(3));
-    }
-    setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
-    setGesture(capturing ? 'Learning your hand' : typing ? 'Typing numbers' : pinching ? 'Tap detected' : 'Hand ready');
-
-    if (desktop && controlRef.current && !typing && !capturing) desktop.moveTo(screenPosition);
-    if (justPinched) triggerMovement('indexTap', screenPosition);
-    if (movement && !capturing) triggerMovement(movement, screenPosition);
-  }, [triggerClick, triggerMovement, typeDigit]);
+      if (
+        desktop &&
+        overlayEnabledRef.current &&
+        controlRef.current &&
+        now - lastOverlaySyncRef.current >= OVERLAY_SYNC_INTERVAL
+      ) {
+        lastOverlaySyncRef.current = now;
+        desktop.syncOverlay({
+          visible: true,
+          controlOn: true,
+          typingOn: typing,
+          dragging: draggingRef.current,
+          armedDigit: currentArmed,
+          holdProgress: activeDwell,
+          gesture: nextGestureLabel,
+        });
+      }
+    },
+    [fireAura, triggerMovement, typeDigit],
+  );
   onLandmarksRef.current = handleLandmarks;
 
   const scheduleFrame = useCallback(() => {
     timerRef.current = setTimeout(async () => {
       const video = videoRef.current;
       const worker = workerRef.current;
-      // Skip ticks that arrive before the camera has a new frame, or while the worker is busy.
-      if (video && worker && !busyRef.current && video.readyState >= 2 && video.currentTime !== lastVideoTimeRef.current) {
+      if (
+        video &&
+        worker &&
+        !busyRef.current &&
+        video.readyState >= 2 &&
+        video.currentTime !== lastVideoTimeRef.current
+      ) {
         lastVideoTimeRef.current = video.currentTime;
         busyRef.current = true;
         try {
@@ -496,7 +974,6 @@ function App() {
         audio: false,
       });
       streamRef.current = stream;
-      // Fires when the camera dies on its own (unplugged, driver crash), not on a normal stop.
       stream.getVideoTracks()[0].addEventListener('ended', () => {
         stopCamera();
         setError('The camera stopped unexpectedly. Press Start camera to try again.');
@@ -512,20 +989,45 @@ function App() {
     }
     try {
       if (!workerRef.current) {
-        // Kept across pauses, so restarting the camera doesn't reload the model.
-        const worker = await createWorker();
+        const { worker, delegate } = await createWorker();
+        setDelegateName(delegate);
         worker.onmessage = ({ data }) => {
-          // Only tongue tracking can still fail once the hand model is running.
-          if (data.type === 'face-unavailable' || data.type === 'error') setTongueAvailable(false);
+          if (data.type === 'face-unavailable' || data.type === 'error') {
+            setTongueAvailable(false);
+          }
           if (data.type !== 'result') return;
           busyRef.current = false;
           if (!streamRef.current) return;
+          const now = performance.now();
+          if (lastResultAtRef.current > 0) {
+            const dt = now - lastResultAtRef.current;
+            if (dt > 4 && dt < 2000) {
+              const instFps = 1000 / dt;
+              fpsEmaRef.current =
+                fpsEmaRef.current > 0 ? fpsEmaRef.current * 0.8 + instFps * 0.2 : instFps;
+            }
+          }
+          lastResultAtRef.current = now;
+          if (typeof data.inferenceMs === 'number') {
+            inferenceEmaRef.current =
+              inferenceEmaRef.current > 0
+                ? inferenceEmaRef.current * 0.78 + data.inferenceMs * 0.22
+                : data.inferenceMs;
+          }
+          if (data.delegate) setDelegateName(data.delegate);
+          if (now - lastTelemetryCommitRef.current >= 280) {
+            lastTelemetryCommitRef.current = now;
+            setLiveFps(Math.round(fpsEmaRef.current));
+            setInferenceMs(Math.round(inferenceEmaRef.current * 10) / 10);
+          }
+
+          setHandsDetected(data.hands?.length ?? (data.landmarks ? 1 : 0));
           if (data.face) onFaceRef.current(data.face);
-          onLandmarksRef.current(data.landmarks, performance.now());
+          const otherHand = data.hands?.[1]?.landmarks ?? null;
+          onLandmarksRef.current(data.landmarks, now, otherHand);
         };
         workerRef.current = worker;
       }
-      // The camera may have stopped while the model was loading.
       if (!streamRef.current) return;
       setCameraOn(true);
       setGesture('Show one hand to camera');
@@ -534,20 +1036,29 @@ function App() {
       console.error(modelError);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      setError(`Hand tracking could not load (${modelError.message}). Restart HandTap and try again.`);
+      setError(
+        `Hand tracking could not load (${modelError.message}). Restart HandTap and try again.`,
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => () => {
-    stopCamera();
-    workerRef.current?.terminate();
-    workerRef.current = null;
-  }, [stopCamera]);
+  useEffect(
+    () => () => {
+      stopCamera();
+      workerRef.current?.terminate();
+      workerRef.current = null;
+    },
+    [stopCamera],
+  );
 
   const teachGesture = useCallback((label) => {
-    teachRef.current = { label, startsAt: performance.now() + TEACH_COUNTDOWN, samples: [] };
+    teachRef.current = {
+      label,
+      startsAt: performance.now() + TEACH_COUNTDOWN,
+      samples: [],
+    };
     setTeaching({ label, status: 'ready', percent: 0 });
   }, []);
 
@@ -557,7 +1068,6 @@ function App() {
     setReachMessage('Keep moving your hand around for five seconds…');
   }, []);
 
-  // Runs once, so someone who can't reach the button doesn't need it to get going.
   useEffect(() => {
     if (autoStart) startCamera();
   }, []);
@@ -572,223 +1082,498 @@ function App() {
   useEffect(() => {
     desktop?.getHotkey().then(setHotkey);
     return desktop?.onToggleControl(() => {
-      if (streamRef.current) setControlOn((value) => !value);
+      if (streamRef.current) setControlOn(true);
     });
   }, []);
 
+  const handleDemoClick = (event) => {
+    setDemoClicks((value) => value + 1);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const winW = window.innerWidth || 1280;
+    const winH = window.innerHeight || 800;
+    const cx =
+      event.clientX && event.clientX > 0
+        ? event.clientX / winW
+        : (rect.left + rect.width * 0.5) / winW;
+    const cy =
+      event.clientY && event.clientY > 0
+        ? event.clientY / winH
+        : (rect.top + rect.height * 0.5) / winH;
+    fireAura({
+      x: cx,
+      y: cy,
+      kind: 'click',
+      label: 'Target clicked',
+      detail: `${demoClicks + 1} total`,
+    });
+  };
+
+  const activeFilterLabel =
+    FILTER_PROFILES[filterProfile]?.id === 'steady'
+      ? 'Steady'
+      : FILTER_PROFILES[filterProfile]?.id === 'agile'
+        ? 'Agile'
+        : 'Balanced';
+
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark"><Hand size={16} strokeWidth={1.5} /></span>
-          <span>HandTap</span>
-        </div>
-        <div className="topbar-actions">
-          <span className="privacy-pill"><span className="privacy-dot" /> Camera stays on this device</span>
-          <button
-            className="icon-button"
-            aria-label="Help"
-            aria-expanded={helpOpen}
-            aria-controls="help-panel"
-            onClick={() => setHelpOpen((value) => !value)}
-          >
-            <CircleHelp size={16} strokeWidth={1.5} />
-            <span>Help</span>
-          </button>
-        </div>
-      </header>
+    <MotionConfig reducedMotion="user">
+      <div className="fluid-canvas-frame">
+        <VisionAura
+          auraEvent={auraEvent}
+          dwellProgress={dwellState.progress}
+          dwellLabel={dwellState.label}
+          focusPoint={lastPositionRef.current ?? handPoint}
+          dragging={dragging}
+        />
 
-      {helpOpen && (
-        <section id="help-panel" className="help-panel" aria-label="Help">
-          <h2>Getting good results</h2>
-          <ul>
-            <li>Sit about an arm's length from the camera, with your whole hand in good light.</li>
-            <li>Moving your hand inside the dashed box moves the cursor across your whole screen.</li>
-            <li>If taps are missed, raise the sensitivity. If clicks fire by accident, lower it.</li>
-            <li>To get the regular mouse back, lower your hand out of view{hotkey ? ` or press ${hotkey}` : ''}.</li>
-            <li>While mouse control is on, sticking out your tongue scrolls down the window under the cursor.</li>
-            <li>If reaching the screen's corners is hard, calibrate your reach so a smaller movement covers the whole screen.</li>
-            <li>To type a number, turn on number typing, hold up its fingers until it shows as ready, then close your hand. The chart under Number typing shows each pattern, and you can choose the movement that turns it on and off.</li>
-            <li>Keybinds press a keyboard shortcut when you make a movement. A fast cursor move can count as a swipe, so only give swipes a shortcut if you want them.</li>
-          </ul>
-        </section>
-      )}
-
-      <section className="hero">
-        <div className="hero-copy">
-          <div className="eyebrow">Hands-free mouse and keyboard</div>
-          <h1>Control your computer with one hand</h1>
-          <p>Use your camera to move the mouse with your hand, and tap your thumb and index finger to click. No mouse or touchpad required.</p>
-          <div className="how-it-works">
-            <div className="step"><kbd>1</kbd><div><strong>Start your camera</strong><small>Allow access when asked</small></div></div>
-            <div className="step"><kbd>2</kbd><div><strong>Tap thumb and index</strong><small>Try it on the test button below</small></div></div>
-            <div className="step"><kbd>3</kbd><div><strong>Turn on mouse control</strong><small>Your hand now moves the real cursor</small></div></div>
-          </div>
-        </div>
-
-        <div className="camera-card">
-          <div className="camera-header">
-            <div><span className={`status-dot ${cameraOn ? 'live' : ''}`} /> {cameraOn ? 'Camera active' : 'Camera preview'}</div>
-            <span className="live-label">{cameraOn ? 'Live' : 'Ready'}</span>
-          </div>
-          <div ref={viewRef} className={`camera-view ${typingOn ? 'mode-typing' : controlOn ? 'mode-control' : ''}`}>
-            <video
-              ref={videoRef}
-              className={cameraOn ? 'visible' : ''}
-              playsInline
-              muted
-              // Match the preview to the camera's shape so the overlay lines up with the hand.
-              // Chromium reports a placeholder size at first, so this can't be read once at startup.
-              onResize={({ currentTarget: { videoWidth, videoHeight } }) => {
-                viewRef.current.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
-              }}
-            />
-            <canvas ref={canvasRef} />
-            {cameraOn && (
-              <div
-                className={`reach-zone ${reachCapturing ? 'capturing' : ''}`}
-                aria-hidden="true"
-                style={{
-                  left: `${reachZone.left * 100}%`,
-                  right: `${(1 - reachZone.right) * 100}%`,
-                  top: `${reachZone.top * 100}%`,
-                  bottom: `${(1 - reachZone.bottom) * 100}%`,
-                }}
-              />
-            )}
-            {holding && (
-              <div className="hold-indicator" aria-hidden="true">
-                <span>{holding === 'typing' ? `Hold to turn ${typingOn ? 'off' : 'on'} number typing` : `Hold to turn ${controlOn ? 'off' : 'on'} mouse control`}</span>
-                <i style={{ animationDuration: `${HOLD_MS}ms` }} />
-              </div>
-            )}
-            {modeNotice && <div key={modeNotice.id} className={`mode-notice ${modeNotice.on ? 'on' : ''}`} aria-hidden="true">{modeNotice.text}</div>}
-            <div ref={cursorRef} className="fake-cursor" aria-hidden="true"><span className="pinch-ring" /><MousePointer2 size={20} strokeWidth={1.5} /></div>
-            {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={16} strokeWidth={1.5} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
-            {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
-          </div>
-          {error && <div className="error-message" role="alert"><AlertCircle size={16} strokeWidth={1.5} /> {error}</div>}
-          <div className="camera-meta">
-            <div className="camera-hint"><MousePointer2 size={16} strokeWidth={1.5} /> The dashed frame maps to your full screen</div>
-            <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue: {!tongueAvailable ? 'unavailable' : tongueActive ? (controlOn ? 'scrolling down' : 'lick detected') : 'ready'} · {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div>
-          </div>
-          <div className="camera-controls">
-            <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
-              {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
-            </button>
-            {desktop ? (
+        <main className="app-shell">
+          <header className="topbar">
+            <div className="brand">
+              <span className="brand-mark">
+                <Hand size={15} strokeWidth={1.75} />
+              </span>
+              <span>HandTap</span>
+            </div>
+            <div className="topbar-actions">
+              <span className="privacy-pill">
+                <span className="privacy-dot" /> Camera stays on this device
+              </span>
               <button
-                className={`control-button ${controlOn ? 'active' : ''}`}
-                aria-pressed={controlOn}
-                disabled={!cameraOn}
-                onClick={() => setControlOn((value) => !value)}
+                type="button"
+                className="icon-button"
+                aria-label="Help"
+                aria-expanded={helpOpen}
+                aria-controls="help-panel"
+                onClick={() => setHelpOpen((value) => !value)}
               >
-                <Power size={16} strokeWidth={1.5} /> {controlOn ? 'Mouse control is on' : 'Turn on mouse control'}
-                {hotkey && <kbd>{hotkey}</kbd>}
+                <CircleHelp size={15} strokeWidth={1.6} />
+                <span>Guide</span>
               </button>
-            ) : (
-              <p className="camera-hint">Controlling the real mouse needs the HandTap desktop app</p>
-            )}
-          </div>
-        </div>
-      </section>
+            </div>
+          </header>
 
-      <section className="workspace">
-        <div className="section-heading">
-          <div>
-            <p className="eyebrow">Live feedback</p>
-            <h2>Make a test click</h2>
-          </div>
-          <div className="feedback-counts">
-            <div className="click-count"><MousePointer2 size={16} strokeWidth={1.5} /> <span key={clicks} className={clicks ? 'count-bump' : ''}>{clicks}</span> {clicks === 1 ? 'click' : 'clicks'}</div>
-            <div className="click-count lick-count"><Hand size={16} strokeWidth={1.5} /> <span key={tongueLicks} className={tongueLicks ? 'count-bump' : ''}>{tongueLicks}</span> {tongueLicks === 1 ? 'lick' : 'licks'}</div>
-          </div>
-        </div>
-        <div className="feedback-grid">
-          <div className="demo-panel">
-            <p className="panel-label">Interaction target</p>
-            <button ref={demoButtonRef} className="demo-button" onClick={() => setDemoClicks((value) => value + 1)}>
-              {demoClicks > 0
-                ? <span key={demoClicks} className="demo-flash"><Check size={16} strokeWidth={1.5} /></span>
-                : <MousePointer2 size={16} strokeWidth={1.5} />}
-              <span>{demoClicks > 0 ? `Clicked ${demoClicks} ${demoClicks === 1 ? 'time' : 'times'}` : 'Tap thumb and index to press'}</span>
-              <small>{controlOn ? 'Move the cursor here, then tap' : 'While mouse control is off, every tap presses this button'}</small>
-            </button>
-            <div className="success-note"><Check size={16} strokeWidth={1.5} /> Taps stay inside this window until you turn on mouse control</div>
-          </div>
-          <aside className="status-panel">
-            <p className="panel-label">Gesture status</p>
-            <div className={`gesture-state ${gesture === 'Tap detected' ? 'detected' : ''}`}>
-              <span className="state-icon"><Hand size={16} strokeWidth={1.5} /></span>
-              <div aria-live="polite">
-                <strong>{gesture}</strong>
-                <small>{cameraOn ? 'Keep your hand in frame' : 'Start the camera to begin'}</small>
+          <TelemetryHud
+            cameraOn={cameraOn}
+            fps={liveFps}
+            inferenceMs={inferenceMs}
+            delegate={delegateName}
+            filterMode={activeFilterLabel}
+            dragging={dragging}
+            theme={theme}
+            onToggleTheme={() => setTheme((cur) => (cur === 'dark' ? 'light' : 'dark'))}
+            shape={shape}
+            onChangeShape={setShape}
+          />
+
+          <AnimatePresence>
+            {helpOpen && (
+              <motion.section
+                id="help-panel"
+                className="help-panel"
+                aria-label="Help"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6, transition: spring.fast.exit }}
+                transition={spring.moderate}
+              >
+                <h2>Getting comfortable results</h2>
+                <ul>
+                  <li>
+                    Sit about an arm&apos;s length from the camera, with your hand in clear light.
+                  </li>
+                  <li>
+                    Moving your hand inside the dashed reach frame moves the cursor across your
+                    whole screen.
+                  </li>
+                  <li>
+                    If taps are missed, raise the sensitivity. If clicks happen too easily, lower
+                    it.
+                  </li>
+                  <li>
+                    To get the regular mouse back, lower your hand out of view
+                    {hotkey ? ` or press ${hotkey}` : ''}.
+                  </li>
+                  <li>
+                    Bind any movement to Left click, Right click, Double click, Hold or release
+                    drag, Scroll up/down, or keyboard shortcuts.
+                  </li>
+                  <li>
+                    If reaching screen corners feels tiring, calibrate your reach so a gentle
+                    movement covers the entire display.
+                  </li>
+                  <li>
+                    In Number typing mode, hold up fingers until a digit arms, then close your hand
+                    to type it.
+                  </li>
+                </ul>
+              </motion.section>
+            )}
+          </AnimatePresence>
+
+          {/* Awwwards Staged Spatial Hero — Gravity Field framed as an interactive optical instrument */}
+          <section className="hero-stage-shell">
+            <GravityField
+              handPoint={handPoint}
+              pinching={gesture === 'Tap detected' || dragging}
+              cameraOn={cameraOn}
+              pulseKey={pulseCount}
+              theme={theme}
+            />
+            <div className="hero-stage-scrim" aria-hidden="true" />
+
+            <div className="hero">
+              <div className="hero-copy">
+                <ModuleIndex index={1} label="Spatial hand control" />
+                <h1>Control your computer with one hand</h1>
+                <p>
+                  Move your cursor naturally through space and tap your thumb and index finger to
+                  click. Sweep across the interactive field—every gesture responds with tactile
+                  spatial feedback.
+                </p>
+
+                <div className="hero-visual-stage">
+                  <img
+                    src="images/hero-hand.jpg"
+                    alt="Studio-lit hand performing a thumb and index finger pinch gesture with optical tracking arcs"
+                    className="hero-optical-image"
+                    width="640"
+                    height="360"
+                  />
+                  <span className="callout-tag callout-pinch">Thumb + index · Pinch click</span>
+                  <span className="callout-tag callout-filter">1€ filter · Tremor smoothed</span>
+                  <span className="callout-tag callout-wasm">
+                    <Sparkles size={12} strokeWidth={1.75} /> Spatial aura feedback
+                  </span>
+                </div>
+
+                <div className="fluid-steps-wrap" {...stepsHover.containerProps}>
+                  <FluidHoverHighlight hover={stepsHover.hover} className="step-hover-pill" />
+                  <div className="how-it-works">
+                    {HERO_STEPS.map((item) => (
+                      <div
+                        key={item.key}
+                        className="step"
+                        {...stepsHover.registerItem(item.key)}
+                      >
+                        <kbd>{item.key}</kbd>
+                        <div>
+                          <strong>{item.title}</strong>
+                          <small>{item.detail}</small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <HudFrame active={cameraOn} className="camera-card">
+                <div className="camera-header">
+                  <div>
+                    <span className={`status-dot ${cameraOn ? 'live' : ''}`} />{' '}
+                    {cameraOn ? 'Camera active' : 'Camera preview'}
+                  </div>
+                  <span className="live-label">{cameraOn ? 'Live' : 'Standby'}</span>
+                </div>
+                <div
+                  ref={viewRef}
+                  className={`camera-view ${typingOn ? 'mode-typing' : controlOn ? 'mode-control' : ''}`}
+                >
+                  <video
+                    ref={videoRef}
+                    className={cameraOn ? 'visible' : ''}
+                    playsInline
+                    muted
+                    onResize={({ currentTarget: { videoWidth, videoHeight } }) => {
+                      if (viewRef.current && videoWidth && videoHeight) {
+                        viewRef.current.style.aspectRatio = `${videoWidth} / ${videoHeight}`;
+                      }
+                    }}
+                  />
+                  <canvas ref={canvasRef} />
+                  {cameraOn && (
+                    <div
+                      className={`reach-zone ${reachCapturing ? 'capturing' : ''}`}
+                      aria-hidden="true"
+                      style={{
+                        left: `${reachZone.left * 100}%`,
+                        right: `${(1 - reachZone.right) * 100}%`,
+                        top: `${reachZone.top * 100}%`,
+                        bottom: `${(1 - reachZone.bottom) * 100}%`,
+                      }}
+                    />
+                  )}
+                  {holding && (
+                    <div className="hold-indicator" aria-hidden="true">
+                      <span>
+                        {holding === 'typing'
+                          ? `Hold to turn ${typingOn ? 'off' : 'on'} number typing`
+                          : `Hold to turn ${controlOn ? 'off' : 'on'} mouse control`}
+                      </span>
+                      <i style={{ animationDuration: `${HOLD_MS}ms` }} />
+                    </div>
+                  )}
+                  {modeNotice && (
+                    <div
+                      key={modeNotice.id}
+                      className={`mode-notice ${modeNotice.on ? 'on' : ''}`}
+                      aria-hidden="true"
+                    >
+                      {modeNotice.text}
+                    </div>
+                  )}
+                  <div ref={cursorRef} className="fake-cursor" aria-hidden="true">
+                    <span className="pinch-ring" />
+                    <MousePointer2 size={20} strokeWidth={1.6} />
+                  </div>
+                  {!cameraOn && (
+                    <div className="camera-placeholder">
+                      <div className="camera-icon">
+                        <Camera size={18} strokeWidth={1.6} />
+                      </div>
+                      <strong>Your hand will appear here</strong>
+                      <span>Position one hand comfortably in frame</span>
+                    </div>
+                  )}
+                  {cameraOn && (
+                    <div className="tracking-label">
+                      <span className="tracking-dot" />{' '}
+                      {handsDetected === 2
+                        ? `Tracking 2 hands${typingOn ? ' · typing hand ready' : ` · ${gesture}`}`
+                        : gesture}
+                    </div>
+                  )}
+                </div>
+                {error && (
+                  <div className="error-message" role="alert">
+                    <AlertCircle size={16} strokeWidth={1.6} /> {error}
+                  </div>
+                )}
+                <div className="camera-meta">
+                  <div className="camera-hint">
+                    <MousePointer2 size={15} strokeWidth={1.6} /> Dashed area maps to your full
+                    screen
+                  </div>
+                  <div className={`tongue-status ${tongueActive ? 'active' : ''}`}>
+                    <span /> Tongue:{' '}
+                    {!tongueAvailable
+                      ? 'unavailable'
+                      : tongueActive
+                        ? controlOn
+                          ? 'scrolling down'
+                          : 'lick detected'
+                        : 'ready'}{' '}
+                    · {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}
+                  </div>
+                </div>
+                <div className="camera-controls">
+                  <DualLayerButton
+                    className={`camera-button ${cameraOn ? 'stop' : 'primary'}`}
+                    onClick={cameraOn ? stopCamera : startCamera}
+                    disabled={loading}
+                    hoverText={
+                      loading
+                        ? 'Loading models…'
+                        : cameraOn
+                          ? 'Pause camera'
+                          : 'Start camera'
+                    }
+                  >
+                    {loading
+                      ? 'Loading hand tracking…'
+                      : cameraOn
+                        ? 'Pause camera'
+                        : 'Start camera'}
+                  </DualLayerButton>
+                  {desktop ? (
+                    <DualLayerButton
+                      className={`control-button ${controlOn ? 'active' : ''}`}
+                      aria-pressed={controlOn}
+                      disabled={!cameraOn}
+                      onClick={() => setControlOn((value) => !value)}
+                      hoverText={controlOn ? 'Pause mouse control' : 'Engage mouse control'}
+                    >
+                      <Power size={15} strokeWidth={1.6} />{' '}
+                      {controlOn ? 'Mouse control is on' : 'Turn on mouse control'}
+                      {hotkey && <kbd>{hotkey}</kbd>}
+                    </DualLayerButton>
+                  ) : (
+                    <p className="camera-hint">
+                      Controlling the OS cursor requires the HandTap desktop app
+                    </p>
+                  )}
+                </div>
+              </HudFrame>
+            </div>
+          </section>
+
+          <ScrollSection aria-labelledby="practice-heading">
+            <div className="section-heading">
+              <div>
+                <ModuleIndex index={2} label="Practice and aura feedback" />
+                <h2 id="practice-heading">Make a test click</h2>
+              </div>
+              <div className="feedback-counts">
+                <div className="click-count">
+                  <MousePointer2 size={15} strokeWidth={1.6} />{' '}
+                  <span key={clicks} className={clicks ? 'count-bump' : ''}>
+                    {clicks}
+                  </span>{' '}
+                  {clicks === 1 ? 'pinch' : 'pinches'}
+                </div>
+                <div className="click-count lick-count">
+                  <Hand size={15} strokeWidth={1.6} />{' '}
+                  <span key={tongueLicks} className={tongueLicks ? 'count-bump' : ''}>
+                    {tongueLicks}
+                  </span>{' '}
+                  {tongueLicks === 1 ? 'lick' : 'licks'}
+                </div>
               </div>
             </div>
-            <div className="meter-row"><span>Pinch strength</span><strong>{strength}%</strong></div>
-            <div className="meter"><span style={{ transform: `scaleX(${strength / 100})` }} /></div>
-            <div className="settings-title"><Settings2 size={16} strokeWidth={1.5} /> Sensitivity <strong>{sensitivity}%</strong></div>
-            <input aria-label="Gesture sensitivity" type="range" min="20" max="80" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} />
-            {nativeError && <div className="error-message" role="alert"><AlertCircle size={16} strokeWidth={1.5} /> {nativeError}</div>}
-          </aside>
-        </div>
-      </section>
 
-      <SetupPanel
-        cameraOn={cameraOn}
-        isDesktop={Boolean(desktop)}
-        reachCapturing={reachCapturing}
-        reachMessage={reachMessage}
-        reachIsCustom={reachZone !== REACH_ZONE}
-        onCalibrateReach={calibrateReach}
-        onResetReach={() => {
-          setReachZone(REACH_ZONE);
-          setReachMessage('Back to the standard reach.');
-        }}
-        autoStart={autoStart}
-        onChangeAutoStart={setAutoStart}
-        controlToggle={controlToggle}
-        onChangeControlToggle={setControlToggle}
-        typingToggle={typingToggle}
-      />
+            <div className="feedback-grid">
+              <HudFrame className="demo-panel">
+                <p className="panel-label">Interactive aura target</p>
+                <button
+                  ref={demoButtonRef}
+                  type="button"
+                  className="demo-button"
+                  onClick={handleDemoClick}
+                >
+                  {demoClicks > 0 ? (
+                    <span key={demoClicks} className="demo-flash">
+                      <Check size={18} strokeWidth={1.75} />
+                    </span>
+                  ) : (
+                    <MousePointer2 size={18} strokeWidth={1.6} />
+                  )}
+                  <span>
+                    {demoClicks > 0
+                      ? `Clicked ${demoClicks} ${demoClicks === 1 ? 'time' : 'times'}`
+                      : 'Tap thumb and index—or click here to preview the aura'}
+                  </span>
+                  <small>
+                    {controlOn
+                      ? 'Move your hand cursor here, then pinch to click'
+                      : 'While mouse control is off, every pinch presses this target safely'}
+                  </small>
+                </button>
+                <div className="success-note">
+                  <Check size={15} strokeWidth={1.6} /> Taps stay inside this window until you turn
+                  on mouse control
+                </div>
+              </HudFrame>
 
-      <NumberTyping
-        typingOn={typingOn}
-        onToggle={() => setTypingOn((value) => !value)}
-        cameraOn={cameraOn}
-        controlOn={controlOn}
-        isDesktop={Boolean(desktop)}
-        hotkey={typingHotkey}
-        armedDigit={armedDigit}
-        seenDigit={seenDigit}
-        seenTaught={seenTaught}
-        readoutRef={readoutRef}
-        typed={typed}
-        typedCount={typedCount}
-        onClear={() => setTyped('')}
-        typingToggle={typingToggle}
-        onChangeToggle={setTypingToggle}
-        soundsOn={soundsOn}
-        onChangeSounds={setSoundsOn}
-        controlToggle={controlToggle}
-        gestureSamples={gestureSamples}
-        teaching={teaching}
-        onTeach={teachGesture}
-        onForget={(label) => setGestureSamples((current) => forgetLabel(current, label))}
-      />
+              <HudFrame className="status-panel">
+                <p className="panel-label">Live gesture state</p>
+                <div
+                  className={`gesture-state ${
+                    gesture === 'Tap detected' || dragging ? 'detected' : ''
+                  }`}
+                >
+                  <span className="state-icon">
+                    <Hand size={16} strokeWidth={1.6} />
+                  </span>
+                  <div aria-live="polite">
+                    <strong>{gesture}</strong>
+                    <small>
+                      {cameraOn ? 'Keep your hand comfortably in view' : 'Start the camera to begin'}
+                    </small>
+                  </div>
+                </div>
+                <div className="meter-row">
+                  <span>Pinch proximity</span>
+                  <strong>{strength}%</strong>
+                </div>
+                <div className="meter">
+                  <span style={{ transform: `scaleX(${strength / 100})` }} />
+                </div>
+                <div className="settings-title">
+                  <Settings2 size={15} strokeWidth={1.6} /> Pinch sensitivity{' '}
+                  <strong>{sensitivity}%</strong>
+                </div>
+                <input
+                  aria-label="Gesture sensitivity"
+                  type="range"
+                  min="20"
+                  max="80"
+                  value={sensitivity}
+                  onChange={(event) => setSensitivity(Number(event.target.value))}
+                />
+                {nativeError && (
+                  <div className="error-message" role="alert">
+                    <AlertCircle size={16} strokeWidth={1.6} /> {nativeError}
+                  </div>
+                )}
+              </HudFrame>
+            </div>
+          </ScrollSection>
 
-      <KeybindSection
-        bindings={bindings}
-        onChange={setBinding}
-        lastMovement={lastMovement}
-        controlOn={controlOn}
-        isDesktop={Boolean(desktop)}
-        typingToggle={typingToggle}
-        controlToggle={controlToggle}
-      />
+          <SetupPanel
+            cameraOn={cameraOn}
+            isDesktop={Boolean(desktop)}
+            reachCapturing={reachCapturing}
+            reachMessage={reachMessage}
+            reachIsCustom={reachZone !== REACH_ZONE}
+            onCalibrateReach={calibrateReach}
+            onResetReach={() => {
+              setReachZone(REACH_ZONE);
+              setReachMessage('Back to the standard reach.');
+            }}
+            autoStart={autoStart}
+            onChangeAutoStart={setAutoStart}
+            controlToggle={controlToggle}
+            onChangeControlToggle={setControlToggle}
+            typingToggle={typingToggle}
+            filterProfile={filterProfile}
+            onChangeFilterProfile={setFilterProfile}
+            overlayEnabled={overlayEnabled}
+            onChangeOverlayEnabled={setOverlayEnabled}
+          />
 
-      <footer><span>HandTap is built for local, hands-free access</span><span>All camera processing stays on this computer</span></footer>
-    </main>
+          <NumberTyping
+            typingOn={typingOn}
+            onToggle={() => setTypingOn((value) => !value)}
+            cameraOn={cameraOn}
+            controlOn={controlOn}
+            isDesktop={Boolean(desktop)}
+            hotkey={typingHotkey}
+            armedDigit={armedDigit}
+            seenDigit={seenDigit}
+            seenTaught={seenTaught}
+            readoutRef={readoutRef}
+            typed={typed}
+            typedCount={typedCount}
+            onClear={() => setTyped('')}
+            typingToggle={typingToggle}
+            onChangeToggle={setTypingToggle}
+            soundsOn={soundsOn}
+            onChangeSounds={setSoundsOn}
+            controlToggle={controlToggle}
+            gestureSamples={gestureSamples}
+            teaching={teaching}
+            onTeach={teachGesture}
+            onForget={(label) =>
+              setGestureSamples((current) => forgetLabel(current, label))
+            }
+          />
+
+          <KeybindSection
+            bindings={bindings}
+            onChange={setBinding}
+            lastMovement={lastMovement}
+            controlOn={controlOn}
+            isDesktop={Boolean(desktop)}
+            typingToggle={typingToggle}
+            controlToggle={controlToggle}
+          />
+
+          <footer>
+            <span>HandTap — local, adaptive hands-free access</span>
+            <span>All camera inference stays on this device</span>
+          </footer>
+        </main>
+      </div>
+    </MotionConfig>
   );
 }
 

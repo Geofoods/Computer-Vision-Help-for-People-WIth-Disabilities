@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import keys from '../electron/keys.cjs';
-import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
+import { DEFAULT_BINDINGS, MOVEMENTS, PRESET_GROUPS, comboFromEvent, loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { createMovementDetector } from './tracking.js';
 
 const { comboToKeyCodes } = keys;
@@ -206,61 +206,13 @@ test('a fist cannot toggle number typing, and bad or failing storage has a safe 
 test('bindings survive a save and load', () => {
   const storage = memoryStorage();
   saveBindings(storage, { fist: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(storage), {
-    indexTap: 'Left Click',
-    tongueLick: 'Scroll Down',
-    headTiltLeft: 'Alt+Left',
-    headTiltRight: 'Alt+Right',
-    swipeLeft: 'Left',
-    swipeRight: 'Right',
-    swipeUp: 'Up',
-    swipeDown: 'Down',
-    fist: 'Ctrl+C',
-    middleTap: 'Ctrl+C',
-    ringTap: 'Ctrl+V',
-  });
+  assert.deepEqual(loadBindings(storage), { ...DEFAULT_BINDINGS, fist: 'Ctrl+C' });
 });
 
 test('loadBindings ignores unknown movements, bad values, and corrupt or failing storage', () => {
   const saved = JSON.stringify({ fist: 'Enter', ringTap: 7, teleport: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), {
-    indexTap: 'Left Click',
-    tongueLick: 'Scroll Down',
-    headTiltLeft: 'Alt+Left',
-    headTiltRight: 'Alt+Right',
-    swipeLeft: 'Left',
-    swipeRight: 'Right',
-    swipeUp: 'Up',
-    swipeDown: 'Down',
-    fist: 'Enter',
-    middleTap: 'Ctrl+C',
-    ringTap: 'Ctrl+V',
-  });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), {
-    indexTap: 'Left Click',
-    tongueLick: 'Scroll Down',
-    headTiltLeft: 'Alt+Left',
-    headTiltRight: 'Alt+Right',
-    swipeLeft: 'Left',
-    swipeRight: 'Right',
-    swipeUp: 'Up',
-    swipeDown: 'Down',
-    fist: 'Esc',
-    middleTap: 'Ctrl+C',
-    ringTap: 'Ctrl+V',
-  });
-  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), {
-    indexTap: 'Left Click',
-    tongueLick: 'Scroll Down',
-    headTiltLeft: 'Alt+Left',
-    headTiltRight: 'Alt+Right',
-    swipeLeft: 'Left',
-    swipeRight: 'Right',
-    swipeUp: 'Up',
-    swipeDown: 'Down',
-    fist: 'Esc',
-    middleTap: 'Ctrl+C',
-    ringTap: 'Ctrl+V',
-  });
-  assert.equal(MOVEMENTS.length, 11);
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), { ...DEFAULT_BINDINGS, fist: 'Enter' });
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), DEFAULT_BINDINGS);
+  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), DEFAULT_BINDINGS);
+  assert.equal(MOVEMENTS.length, 19);
 });

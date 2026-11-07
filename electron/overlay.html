@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>HandTap Spatial Overlay</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        background: transparent;
+        pointer-events: none;
+        user-select: none;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      /* VisionOS Floating Status Capsule */
+      .spatial-pill {
+        position: fixed;
+        top: 18px;
+        right: 22px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        height: 36px;
+        padding: 0 14px;
+        border-radius: 999px;
+        background: rgba(20, 22, 26, 0.72);
+        backdrop-filter: blur(22px) saturate(160%);
+        -webkit-backdrop-filter: blur(22px) saturate(160%);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.24),
+          inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+          0 10px 28px rgba(0, 0, 0, 0.28);
+        color: #f5f5f7;
+        font-size: 12.5px;
+        font-weight: 500;
+        letter-spacing: -0.005em;
+        opacity: 0;
+        transform: translateY(-8px) scale(0.96);
+        transition:
+          opacity 180ms cubic-bezier(0.16, 1, 0.3, 1),
+          transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      .spatial-pill.visible {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      .ring-wrap {
+        position: relative;
+        width: 16px;
+        height: 16px;
+        display: grid;
+        place-items: center;
+      }
+
+      .beacon {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #4cc38a;
+        box-shadow: 0 0 10px rgba(76, 195, 138, 0.75);
+      }
+
+      .beacon.typing {
+        background: #6b97ff;
+        box-shadow: 0 0 10px rgba(107, 151, 255, 0.8);
+      }
+
+      .beacon.dragging {
+        background: #f59e0b;
+        box-shadow: 0 0 10px rgba(245, 158, 11, 0.85);
+      }
+
+      .dwell-svg {
+        position: absolute;
+        inset: -2px;
+        width: 20px;
+        height: 20px;
+        transform: rotate(-90deg);
+      }
+
+      .dwell-track {
+        fill: none;
+        stroke: rgba(255, 255, 255, 0.14);
+        stroke-width: 2;
+      }
+
+      .dwell-bar {
+        fill: none;
+        stroke: #6b97ff;
+        stroke-width: 2;
+        stroke-linecap: round;
+        transition: stroke-dashoffset 60ms linear;
+      }
+
+      .pill-digit {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: rgba(107, 151, 255, 0.24);
+        color: #dbe7ff;
+        font-variant-numeric: tabular-nums;
+        font-size: 11.5px;
+        font-weight: 600;
+      }
+
+      #aura-canvas {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="aura-canvas"></canvas>
+    <div id="pill" class="spatial-pill" aria-hidden="true">
+      <div class="ring-wrap">
+        <svg class="dwell-svg" viewBox="0 0 20 20">
+          <circle class="dwell-track" cx="10" cy="10" r="8" />
+          <circle id="dwell-bar" class="dwell-bar" cx="10" cy="10" r="8" stroke-dasharray="50.26" stroke-dashoffset="50.26" />
+        </svg>
+        <span id="beacon" class="beacon"></span>
+      </div>
+      <span id="pill-text">HandTap active</span>
+      <span id="pill-digit" class="pill-digit" style="display: none"></span>
+    </div>
+
+    <script>
+      const canvas = document.getElementById('aura-canvas');
+      const ctx = canvas.getContext('2d');
+      const pill = document.getElementById('pill');
+      const beacon = document.getElementById('beacon');
+      const pillText = document.getElementById('pill-text');
+      const pillDigit = document.getElementById('pill-digit');
+      const dwellBar = document.getElementById('dwell-bar');
+      const CIRC = 50.26;
+
+      let width = window.innerWidth;
+      let height = window.innerHeight;
+      let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      function resize() {
+        width = window.innerWidth;
+        height = window.innerHeight;
+        dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(width * dpr);
+        canvas.height = Math.floor(height * dpr);
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      const TONES = {
+        emerald: { ring: [120, 232, 178], glow: [76, 195, 138], rim: [235, 255, 246] },
+        cobalt: { ring: [130, 174, 255], glow: [107, 151, 255], rim: [235, 244, 255] },
+        amber: { ring: [252, 211, 77], glow: [245, 158, 11], rim: [255, 248, 225] },
+      };
+
+      const bursts = [];
+      let rafId = null;
+
+      function spawnBurst(payload) {
+        const nx = typeof payload?.x === 'number' ? payload.x : 0.5;
+        const ny = typeof payload?.y === 'number' ? payload.y : 0.5;
+        const x = nx * width;
+        const y = ny * height;
+        const palette = TONES[payload?.tone] || TONES.emerald;
+        const bubbles = [];
+        const count = 10;
+        for (let i = 0; i < count; i += 1) {
+          const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.35;
+          const speed = 1.6 + Math.random() * 2.2;
+          bubbles.push({
+            x,
+            y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            r: 2.2 + Math.random() * 3.4,
+            life: 0,
+            maxLife: 0.42 + Math.random() * 0.22,
+          });
+        }
+        bursts.push({
+          x,
+          y,
+          palette,
+          label: payload?.label || '',
+          startedAt: performance.now(),
+          duration: 620,
+          bubbles,
+        });
+        if (!rafId) rafId = requestAnimationFrame(step);
+      }
+
+      function step(now) {
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, width, height);
+
+        for (let i = bursts.length - 1; i >= 0; i -= 1) {
+          const b = bursts[i];
+          const p = Math.min(1, (now - b.startedAt) / b.duration);
+          const ease = 1 - Math.pow(1 - p, 4);
+          const fade = Math.pow(1 - p, 1.8);
+          const [rr, rg, rb] = b.palette.ring;
+          const [gr, gg, gb] = b.palette.glow;
+          const [wr, wg, wb] = b.palette.rim;
+
+          // 1. Vision Pro Specular Core Bloom
+          if (p < 0.55) {
+            const coreAlpha = (1 - p / 0.55) * 0.34;
+            const coreRadius = 10 + ease * 36;
+            const grad = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, coreRadius);
+            grad.addColorStop(0, `rgba(${wr}, ${wg}, ${wb}, ${coreAlpha.toFixed(3)})`);
+            grad.addColorStop(0.55, `rgba(${gr}, ${gg}, ${gb}, ${(coreAlpha * 0.55).toFixed(3)})`);
+            grad.addColorStop(1, `rgba(${gr}, ${gg}, ${gb}, 0)`);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(b.x, b.y, coreRadius, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // 2. Primary Pearlescent Glass Ring
+          const radius = 12 + ease * 62;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, radius, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${wr}, ${wg}, ${wb}, ${(fade * 0.85).toFixed(3)})`;
+          ctx.lineWidth = 2.2 * (1 - p * 0.55);
+          ctx.stroke();
+
+          // 3. Secondary Chromatic Halo Ring
+          const haloRadius = 8 + ease * 46;
+          ctx.beginPath();
+          ctx.arc(b.x, b.y, haloRadius, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${rr}, ${rg}, ${rb}, ${(fade * 0.55).toFixed(3)})`;
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+
+          // 4. Buoyant Bubble Pop Particles
+          for (const bub of b.bubbles) {
+            bub.x += bub.vx;
+            bub.y += bub.vy;
+            bub.vx *= 0.93;
+            bub.vy *= 0.93;
+            bub.life += 0.016;
+            const bp = Math.min(1, bub.life / bub.maxLife);
+            const popScale = bp < 0.75 ? 1 + bp * 0.25 : 1.18 * (1 - (bp - 0.75) / 0.25);
+            const bAlpha = (1 - bp) * 0.8;
+            if (bAlpha > 0.02 && popScale > 0.05) {
+              const rNow = bub.r * popScale;
+              ctx.beginPath();
+              ctx.arc(bub.x, bub.y, rNow, 0, Math.PI * 2);
+              ctx.fillStyle = `rgba(${rr}, ${rg}, ${rb}, ${(bAlpha * 0.28).toFixed(3)})`;
+              ctx.fill();
+              ctx.strokeStyle = `rgba(${wr}, ${wg}, ${wb}, ${bAlpha.toFixed(3)})`;
+              ctx.lineWidth = 1;
+              ctx.stroke();
+            }
+          }
+
+          if (p >= 1) bursts.splice(i, 1);
+        }
+
+        ctx.restore();
+        if (bursts.length > 0) {
+          rafId = requestAnimationFrame(step);
+        } else {
+          rafId = null;
+        }
+      }
+
+      if (window.handtapOverlay) {
+        window.handtapOverlay.onAura((payload) => {
+          spawnBurst(payload);
+        });
+
+        window.handtapOverlay.onState((state) => {
+          if (!state || !state.visible) {
+            pill.classList.remove('visible');
+            return;
+          }
+          pill.classList.add('visible');
+          beacon.className = `beacon ${state.dragging ? 'dragging' : state.typingOn ? 'typing' : ''}`;
+          pillText.textContent = state.dragging
+            ? 'Drag locked'
+            : state.typingOn
+              ? 'Number mode'
+              : state.outOfBounds
+                ? 'Hand near edge'
+                : 'Mouse active';
+
+          if (state.typingOn && state.armedDigit !== null && state.armedDigit !== undefined) {
+            pillDigit.style.display = 'inline-flex';
+            pillDigit.textContent = String(state.armedDigit);
+          } else {
+            pillDigit.style.display = 'none';
+          }
+
+          const prog = Math.max(0, Math.min(1, Number(state.holdProgress) || 0));
+          dwellBar.style.strokeDashoffset = String(CIRC * (1 - prog));
+        });
+      }
+    </script>
+  </body>
+</html>
+

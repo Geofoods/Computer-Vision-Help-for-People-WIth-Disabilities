@@ -212,6 +212,62 @@ export function headTilt(landmarks, threshold = 0.2) {
   return null;
 }
 
+/** Returns the vertical head direction, normalized by eye distance. */
+export function headPitch(landmarks, threshold = 0.24) {
+  return headPitchStrength(landmarks, threshold)?.id ?? null;
+}
+
+export function headPitchStrength(landmarks, threshold = 0.24) {
+  const leftEye = landmarks?.[33];
+  const rightEye = landmarks?.[263];
+  const nose = landmarks?.[1];
+  if (!leftEye || !rightEye || !nose) return null;
+  const eyeDistance = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
+  if (!eyeDistance) return null;
+  // In a neutral face the nose is naturally below the eye line. Measure movement
+  // away from that anatomical baseline instead of treating a normal face as down.
+  const offset = (nose.y - (leftEye.y + rightEye.y) / 2) / eyeDistance;
+  const deviation = offset - 0.5;
+  const magnitude = Math.min(1, Math.max(0, (Math.abs(deviation) - threshold) / 0.8));
+  if (deviation < -threshold) return { id: 'headTiltUp', intensity: magnitude };
+  if (deviation > threshold) return { id: 'headTiltDown', intensity: magnitude };
+  return null;
+}
+
+function blendshapeScore(blendshapes, name) {
+  return blendshapes?.find(({ categoryName }) => categoryName === name)?.score ?? 0;
+}
+
+export function faceGestures(blendshapes) {
+  const leftBlink = blendshapeScore(blendshapes, 'eyeBlinkLeft');
+  const rightBlink = blendshapeScore(blendshapes, 'eyeBlinkRight');
+  return {
+    blink: leftBlink > 0.55 && rightBlink > 0.55,
+    winkLeft: leftBlink > 0.6 && rightBlink < 0.35,
+    winkRight: rightBlink > 0.6 && leftBlink < 0.35,
+    kiss: blendshapeScore(blendshapes, 'mouthPucker') > 0.55,
+    cheekPuff: blendshapeScore(blendshapes, 'cheekPuff') > 0.45,
+    mouthOpen: blendshapeScore(blendshapes, 'jawOpen') > 0.6,
+  };
+}
+
+export function createFaceGestureDetector() {
+  const previous = {};
+  return {
+    update(blendshapes) {
+      const active = faceGestures(blendshapes);
+      const fired = Object.entries(active)
+        .filter(([id, isActive]) => isActive && !previous[id])
+        .map(([id]) => id);
+      Object.assign(previous, active);
+      return fired;
+    },
+    reset() {
+      for (const id of Object.keys(previous)) previous[id] = false;
+    },
+  };
+}
+
 /**
  * Pinch state machine. The release threshold sits above the press threshold so a
  * hand hovering near the boundary can't fire repeated clicks, and a press must last
@@ -273,9 +329,16 @@ export function createHoldDetector({ holdMs = HOLD_MS } = {}) {
       fired = true;
       return true;
     },
+    progress(now) {
+      if (since === null || fired) return 0;
+      return clamp01((now - since) / holdMs);
+    },
     /** True while a hold is under way and hasn't fired yet, so it can be shown filling up. */
     isHolding() {
       return since !== null && !fired;
+    },
+    hasFired() {
+      return fired;
     },
     reset() {
       since = null;
@@ -360,6 +423,13 @@ export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
         confidence: taught ? match.confidence : null,
       };
     },
+    progress() {
+      return {
+        candidate,
+        ratio: candidate !== null && candidate !== armed ? clamp01(candidateCount / holdFrames) : 0,
+        armed,
+      };
+    },
     reset() {
       armed = null;
       candidate = null;
@@ -369,11 +439,19 @@ export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
   };
 }
 
+export const FILTER_PROFILES = {
+  steady: { id: 'steady', label: 'Tremor Dampened', minCutoff: 0.6, beta: 0.02, derivativeCutoff: 0.8 },
+  balanced: { id: 'balanced', label: 'Balanced', minCutoff: 1.2, beta: 0.05, derivativeCutoff: 1.0 },
+  agile: { id: 'agile', label: 'High Speed / Agile', minCutoff: 2.0, beta: 0.12, derivativeCutoff: 1.5 },
+};
+
 /**
  * One Euro filter: smooths heavily when the hand is nearly still, which removes
  * jitter, and lightly when it moves fast, which avoids lag.
  */
-export function createOneEuroFilter({ minCutoff = 1.2, beta = 0.05, derivativeCutoff = 1 } = {}) {
+export function createOneEuroFilter(options = {}) {
+  const profile = typeof options === 'string' ? FILTER_PROFILES[options] : options;
+  const { minCutoff = 1.2, beta = 0.05, derivativeCutoff = 1 } = profile || {};
   const alpha = (cutoff, dt) => 1 / (1 + 1 / (2 * Math.PI * cutoff * dt));
   let previous = null;
 
