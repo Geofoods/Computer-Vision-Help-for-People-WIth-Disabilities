@@ -24,4 +24,6 @@ function play(notes) {
 
 export const playTypingOn = () => play([{ frequency: 520 }, { frequency: 780, delay: 0.1 }]);
 export const playTypingOff = () => play([{ frequency: 780 }, { frequency: 520, delay: 0.1 }]);
+export const playControlOn = () => play([{ frequency: 392 }, { frequency: 587, delay: 0.1 }]);
+export const playControlOff = () => play([{ frequency: 587 }, { frequency: 392, delay: 0.1 }]);
 export const playDigitTyped = () => play([{ frequency: 900, duration: 0.05 }]);

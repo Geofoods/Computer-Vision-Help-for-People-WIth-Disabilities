@@ -1,4 +1,5 @@
 // Pure hand-tracking logic, kept free of React and the DOM so it can be unit tested.
+import { GESTURE_CLOSED } from './gesture-model.js';
 
 const WRIST = 0;
 const THUMB_TIP = 4;
@@ -11,6 +12,9 @@ const RING_TIP = 16;
 const FINGERS = [[6, 8], [10, 12], [14, 16], [18, 20]];
 const TAP_TIPS = { middleTap: MIDDLE_TIP, ringTap: RING_TIP };
 const RELEASE_MARGIN = 0.15;
+// A thumb resting on a finger curled into the palm isn't a tap. On real photos curled
+// fingers measure up to 0.75, so this leaves room for a finger bent to meet the thumb.
+const TAP_FINGER_OPEN = 0.85;
 
 // Part of the camera frame that maps to the whole screen. A hand can't comfortably
 // reach the edge of the frame, so without this the screen corners would be unreachable.
@@ -35,6 +39,12 @@ export function pinchRatio(landmarks, aspect = 1) {
   return thumbGap(landmarks, INDEX_TIP, aspect);
 }
 
+/** How far a fingertip is from the wrist compared with its middle joint: under 1 means curled. */
+function fingerExtension(landmarks, [joint, tip], aspect) {
+  const wrist = landmarks[WRIST];
+  return distance(landmarks[tip], wrist, aspect) / distance(landmarks[joint], wrist, aspect);
+}
+
 /** A finger is curled when its tip is closer to the wrist than its middle joint. */
 function isFist(landmarks, aspect) {
   const wrist = landmarks[WRIST];
@@ -48,7 +58,9 @@ function detectPose(landmarks, aspect, press) {
   const ring = thumbGap(landmarks, RING_TIP, aspect);
   const closest = Math.min(index, middle, ring);
   if (closest >= press || closest === index) return null;
-  return closest === middle ? 'middleTap' : 'ringTap';
+  const tapped = closest === middle ? 'middleTap' : 'ringTap';
+  const finger = closest === middle ? FINGERS[1] : FINGERS[2];
+  return fingerExtension(landmarks, finger, aspect) >= TAP_FINGER_OPEN ? tapped : null;
 }
 
 /**
@@ -148,17 +160,47 @@ export function cursorPoint(landmarks) {
 }
 
 /** Maps a mirrored camera point to a 0-1 screen position through the reach zone. */
-export function toScreen({ x, y }) {
+export function toScreen({ x, y }, zone = REACH_ZONE) {
   return {
-    x: clamp01((x - REACH_ZONE.left) / (REACH_ZONE.right - REACH_ZONE.left)),
-    y: clamp01((y - REACH_ZONE.top) / (REACH_ZONE.bottom - REACH_ZONE.top)),
+    x: clamp01((x - zone.left) / (zone.right - zone.left)),
+    y: clamp01((y - zone.top) / (zone.bottom - zone.top)),
   };
+}
+
+/**
+ * The reach zone for the points a person's hand covered, or null if they barely moved.
+ * The edges come in slightly, so the screen's corners don't take a full stretch to reach.
+ */
+export function computeReachZone(points, { minSpan = 0.08, margin = 0.1 } = {}) {
+  if (points.length === 0) return null;
+  const xs = points.map(({ x }) => x);
+  const ys = points.map(({ y }) => y);
+  const [left, right, top, bottom] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  if (right - left < minSpan || bottom - top < minSpan) return null;
+  const insetX = (right - left) * margin;
+  const insetY = (bottom - top) * margin;
+  return { left: left + insetX, right: right - insetX, top: top + insetY, bottom: bottom - insetY };
 }
 
 /** Whether face blendshapes show a tongue gesture. A mouth shape counts too, since tongueOut alone is unreliable. */
 export function isLicking(blendshapes) {
   const score = (name) => blendshapes.find(({ categoryName }) => categoryName === name)?.score ?? 0;
   return score('tongueOut') > 0.2 || (score('jawOpen') > 0.35 && score('mouthPucker') > 0.08);
+}
+
+/**
+ * Which way the person is tilting their own head once the eye line passes a safe angle.
+ * The camera image isn't mirrored here, so their right eye (33) is on the image's left,
+ * and tilting toward their right shoulder lowers it.
+ */
+export function headTilt(landmarks, threshold = 0.2) {
+  const leftEye = landmarks?.[33];
+  const rightEye = landmarks?.[263];
+  if (!leftEye || !rightEye) return null;
+  const angle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
+  if (angle > threshold) return 'headTiltLeft';
+  if (angle < -threshold) return 'headTiltRight';
+  return null;
 }
 
 /**
@@ -245,7 +287,8 @@ const PINKY_KNUCKLE = 17;
 const THUMB_JOINT = 3;
 // Between these, a finger is half bent and the frame says nothing about it.
 const FINGER_RAISED = 1.1;
-const THUMB_RAISED = 1.15;
+// Measured on real photos: tucked or resting thumbs reach 1.01 and raised ones start at 1.07.
+const THUMB_RAISED = 1.04;
 
 /** 'closed' for four curled fingers, a string like 'IM' for a clear pattern, or null mid-movement. */
 function readFingers(landmarks, aspect) {
@@ -270,8 +313,11 @@ export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
   let closedCount = 0;
 
   return {
-    update(landmarks, aspect = 1) {
-      const reading = readFingers(landmarks, aspect);
+    // `model` holds gestures the person taught, which take priority over the standard patterns.
+    update(landmarks, aspect = 1, model = null) {
+      const taught = model?.classify(landmarks, aspect) ?? null;
+      // A taught shape is judged only by what it was taught as, whatever its fingers look like.
+      const reading = taught === GESTURE_CLOSED ? 'closed' : taught ? null : readFingers(landmarks, aspect);
       if (reading === 'closed') {
         candidate = null;
         candidateCount = 0;
@@ -282,7 +328,7 @@ export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
         return { digit, armed };
       }
       closedCount = 0;
-      const seen = DIGIT_BY_FINGERS[reading] ?? null;
+      const seen = taught ?? DIGIT_BY_FINGERS[reading] ?? null;
       candidateCount = seen !== null && seen === candidate ? candidateCount + 1 : 1;
       candidate = seen;
       if (seen !== null && candidateCount >= holdFrames) armed = seen;
