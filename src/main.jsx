@@ -6,7 +6,7 @@ import './styles.css';
 
 const MODEL_URL =
   'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const WASM_URL = '/wasm';
+const WASM_URL = new URL('wasm', window.location.href).toString();
 const PINCH_THRESHOLD = 0.105;
 const RELEASE_THRESHOLD = 0.15;
 const CLICK_COOLDOWN = 500;
@@ -126,7 +126,7 @@ function App() {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       setError(cameraError.name === 'NotAllowedError'
         ? 'Camera permission was denied. Allow camera access in your browser and try again.'
-        : 'We could not start the camera. Make sure this page is running on HTTPS or localhost.');
+        : 'We could not start the camera. Check camera permissions and try again.');
     } finally {
       setLoading(false);
     }
