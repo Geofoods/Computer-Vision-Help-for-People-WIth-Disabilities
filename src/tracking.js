@@ -211,6 +211,33 @@ export function createPinchDetector({ holdFrames = 2 } = {}) {
   };
 }
 
+/**
+ * Fires once when something stays true for `holdMs`, and not again until it stops. Used
+ * where a brief match could happen by chance, such as fingers passing while they close.
+ */
+export function createHoldDetector({ holdMs = 500 } = {}) {
+  let since = null;
+  let fired = false;
+
+  return {
+    update(active, now) {
+      if (!active) {
+        since = null;
+        fired = false;
+        return false;
+      }
+      since ??= now;
+      if (fired || now - since < holdMs) return false;
+      fired = true;
+      return true;
+    },
+    reset() {
+      since = null;
+      fired = false;
+    },
+  };
+}
+
 // Each digit's raised fingers: T(humb), I(ndex), M(iddle), R(ing), P(inky).
 export const DIGIT_CHART = [
   { digit: '1', fingers: 'I', label: 'Index' },
