@@ -1,9 +1,21 @@
 // Keybind data and helpers, kept free of React so they can be unit tested.
 
 const STORAGE_KEY = 'handtap.keybinds';
+const TOGGLE_KEY = 'handtap.typingToggle';
+const SOUNDS_KEY = 'handtap.sounds';
+// Earlier versions kept the typing toggle among the shortcuts, under this name.
+const OLD_TOGGLE_COMBO = 'NumberTyping';
 
-// Stored like a shortcut, but handled inside the app rather than pressed.
-export const TOGGLE_TYPING = 'NumberTyping';
+// A fist isn't offered because closing the hand is what types a number.
+export const TYPING_TOGGLES = [
+  { id: 'ringTap', label: 'Hold thumb + ring finger', instruction: 'Hold your thumb on your ring finger for half a second' },
+  { id: 'middleTap', label: 'Hold thumb + middle finger', instruction: 'Hold your thumb on your middle finger for half a second' },
+  { id: 'swipeLeft', label: 'Swipe left', instruction: 'Swipe left' },
+  { id: 'swipeRight', label: 'Swipe right', instruction: 'Swipe right' },
+  { id: 'swipeUp', label: 'Swipe up', instruction: 'Swipe up' },
+  { id: 'swipeDown', label: 'Swipe down', instruction: 'Swipe down' },
+];
+const isToggle = (id) => TYPING_TOGGLES.some((toggle) => toggle.id === id);
 
 export const MOVEMENTS = [
   { id: 'indexTap', label: 'Tap thumb + index', hint: 'Touch your thumb to your index finger' },
@@ -35,10 +47,6 @@ export const DEFAULT_BINDINGS = {
 
 // Listed so nobody has to physically press a shortcut, which may be the reason they use this app.
 export const PRESET_GROUPS = [
-  {
-    label: 'HandTap',
-    presets: [{ label: 'Turn number typing on or off (swipes work best)', combo: TOGGLE_TYPING }],
-  },
   {
     label: 'Editing',
     presets: [
@@ -158,12 +166,48 @@ export function loadBindings(storage) {
   try {
     const saved = JSON.parse(storage.getItem(STORAGE_KEY)) ?? {};
     for (const { id } of MOVEMENTS) {
-      if (typeof saved[id] === 'string' && saved[id]) bindings[id] = saved[id];
+      if (typeof saved[id] === 'string' && saved[id] && saved[id] !== OLD_TOGGLE_COMBO) bindings[id] = saved[id];
     }
   } catch (error) {
     console.warn('Could not load keybinds.', error);
   }
   return bindings;
+}
+
+/**
+ * The movement that toggles number typing, or '' for none. New setups get a tap that no
+ * shortcut is using, so the feature works hands-free without anyone setting it up first.
+ */
+export function loadTypingToggle(storage) {
+  try {
+    const stored = storage.getItem(TOGGLE_KEY);
+    if (stored === '' || isToggle(stored)) return stored;
+    const saved = JSON.parse(storage.getItem(STORAGE_KEY)) ?? {};
+    const old = TYPING_TOGGLES.find(({ id }) => saved[id] === OLD_TOGGLE_COMBO);
+    if (old) return old.id;
+    return ['ringTap', 'middleTap'].find((id) => !saved[id]) ?? '';
+  } catch (error) {
+    console.warn('Could not load the number typing toggle.', error);
+    return 'ringTap';
+  }
+}
+
+/** Sounds are on unless someone turned them off. */
+export function loadSoundsOn(storage) {
+  try {
+    return storage.getItem(SOUNDS_KEY) !== 'off';
+  } catch (error) {
+    return true;
+  }
+}
+
+export function saveTypingPreferences(storage, typingToggle, soundsOn) {
+  try {
+    storage.setItem(TOGGLE_KEY, typingToggle);
+    storage.setItem(SOUNDS_KEY, soundsOn ? 'on' : 'off');
+  } catch (error) {
+    console.warn('Could not save number typing preferences.', error);
+  }
 }
 
 export function saveBindings(storage, bindings) {

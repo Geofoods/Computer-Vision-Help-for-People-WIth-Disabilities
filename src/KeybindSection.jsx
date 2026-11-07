@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
-import { MOVEMENTS, PRESET_GROUPS, TOGGLE_TYPING, comboFromEvent, isPreset } from './keybinds.js';
+import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, isPreset } from './keybinds.js';
 
 const FLASH_MS = 1200;
 
@@ -10,7 +10,7 @@ function statusText(isDesktop, controlOn) {
   return 'Movements with a shortcut now press it in whichever app is in front.';
 }
 
-function BindingRow({ movement, combo, flashing, onChange }) {
+function BindingRow({ movement, combo, flashing, onChange, reserved }) {
   const [recording, setRecording] = useState(false);
   const selectId = `keybind-${movement.id}`;
 
@@ -35,13 +35,13 @@ function BindingRow({ movement, combo, flashing, onChange }) {
         <label htmlFor={selectId}>{movement.label}</label>
         <small>{movement.hint}</small>
       </div>
-      <select id={selectId} value={combo ?? ''} onChange={(event) => onChange(movement.id, event.target.value)}>
-        <option value="">No shortcut</option>
+      <select id={selectId} value={reserved ? '' : combo ?? ''} disabled={reserved} onChange={(event) => onChange(movement.id, event.target.value)}>
+        <option value="">{reserved ? 'Turns number typing on and off' : 'No shortcut'}</option>
         {combo && !isPreset(combo) && <option value={combo}>{combo}</option>}
         {PRESET_GROUPS.map(({ label, presets }) => (
           <optgroup key={label} label={label}>
             {presets.map((preset) => (
-              <option key={preset.combo} value={preset.combo}>{preset.combo === TOGGLE_TYPING ? preset.label : `${preset.label} (${preset.combo})`}</option>
+              <option key={preset.combo} value={preset.combo}>{preset.label} ({preset.combo})</option>
             ))}
           </optgroup>
         ))}
@@ -49,6 +49,7 @@ function BindingRow({ movement, combo, flashing, onChange }) {
       <button
         type="button"
         className={`record-button ${recording ? 'recording' : ''}`}
+        disabled={reserved}
         aria-label={recording ? `Recording a shortcut for ${movement.label}. Press keys, or Esc to cancel.` : `Record a shortcut for ${movement.label}`}
         onClick={() => setRecording((value) => !value)}
         onKeyDown={handleKeyDown}
@@ -60,7 +61,7 @@ function BindingRow({ movement, combo, flashing, onChange }) {
   );
 }
 
-export function KeybindSection({ bindings, onChange, lastMovement, controlOn, isDesktop }) {
+export function KeybindSection({ bindings, onChange, lastMovement, controlOn, isDesktop, typingToggle }) {
   const [flashingId, setFlashingId] = useState(null);
 
   useEffect(() => {
@@ -90,6 +91,7 @@ export function KeybindSection({ bindings, onChange, lastMovement, controlOn, is
               combo={bindings[movement.id]}
               flashing={flashingId === movement.id}
               onChange={onChange}
+              reserved={movement.id === typingToggle}
             />
           ))}
         </ul>

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import keys from '../electron/keys.cjs';
-import { MOVEMENTS, PRESET_GROUPS, TOGGLE_TYPING, comboFromEvent, loadBindings, saveBindings } from './keybinds.js';
+import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { createMovementDetector } from './tracking.js';
 
 const { comboToKeyCodes } = keys;
@@ -129,9 +129,7 @@ test('comboToKeyCodes rejects anything it does not recognise', () => {
 
 test('every preset is a combination the desktop side accepts', () => {
   for (const { presets } of PRESET_GROUPS) {
-    for (const { combo } of presets) {
-      if (combo !== TOGGLE_TYPING) assert.doesNotThrow(() => comboToKeyCodes(combo), combo);
-    }
+    for (const { combo } of presets) assert.doesNotThrow(() => comboToKeyCodes(combo), combo);
   }
 });
 
@@ -161,6 +159,36 @@ test('every key the recorder can produce is accepted by the desktop side', () =>
     assert.ok(combo, code);
     assert.equal(comboToKeyCodes(combo).length, 5, code);
   }
+});
+
+test('number typing starts on a thumb tap that no shortcut is using', () => {
+  const withBindings = (bindings) => memoryStorage({ 'handtap.keybinds': JSON.stringify(bindings) });
+  assert.equal(loadTypingToggle(memoryStorage()), 'ringTap');
+  assert.equal(loadTypingToggle(withBindings({ ringTap: 'Ctrl+C' })), 'middleTap');
+  assert.equal(loadTypingToggle(withBindings({ ringTap: 'Ctrl+C', middleTap: 'Enter' })), '');
+});
+
+test('a toggle set the old way carries over, and stops being a shortcut', () => {
+  const storage = memoryStorage({ 'handtap.keybinds': JSON.stringify({ swipeUp: 'NumberTyping', fist: 'Enter' }) });
+  assert.equal(loadTypingToggle(storage), 'swipeUp');
+  assert.deepEqual(loadBindings(storage), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Enter' });
+});
+
+test('number typing preferences survive a save and load, including turning the toggle off', () => {
+  const storage = memoryStorage();
+  saveTypingPreferences(storage, '', false);
+  assert.equal(loadTypingToggle(storage), '');
+  assert.equal(loadSoundsOn(storage), false);
+  saveTypingPreferences(storage, 'swipeLeft', true);
+  assert.equal(loadTypingToggle(storage), 'swipeLeft');
+  assert.equal(loadSoundsOn(storage), true);
+});
+
+test('a fist cannot toggle number typing, and bad or failing storage has a safe answer', () => {
+  assert.equal(loadTypingToggle(memoryStorage({ 'handtap.typingToggle': 'fist' })), 'ringTap');
+  const blocked = { getItem() { throw new Error('blocked'); } };
+  assert.equal(loadTypingToggle(blocked), 'ringTap');
+  assert.equal(loadSoundsOn(blocked), true);
 });
 
 test('bindings survive a save and load', () => {
