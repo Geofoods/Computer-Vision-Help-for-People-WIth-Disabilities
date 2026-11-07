@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
-import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, isPreset } from './keybinds.js';
+import { MOVEMENTS, PRESET_GROUPS, TOGGLE_TYPING, comboFromEvent, isPreset } from './keybinds.js';
 
 const FLASH_MS = 1200;
 
@@ -41,7 +41,7 @@ function BindingRow({ movement, combo, flashing, onChange }) {
         {PRESET_GROUPS.map(({ label, presets }) => (
           <optgroup key={label} label={label}>
             {presets.map((preset) => (
-              <option key={preset.combo} value={preset.combo}>{preset.label} ({preset.combo})</option>
+              <option key={preset.combo} value={preset.combo}>{preset.combo === TOGGLE_TYPING ? preset.label : `${preset.label} (${preset.combo})`}</option>
             ))}
           </optgroup>
         ))}

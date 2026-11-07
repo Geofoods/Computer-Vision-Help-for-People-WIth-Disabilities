@@ -4,6 +4,7 @@ const { createMouse } = require('./mouse.cjs');
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const TOGGLE_HOTKEY = 'CommandOrControl+Alt+H';
+const TYPING_HOTKEY = 'CommandOrControl+Alt+N';
 
 // Hand tracking has to keep running while another app is in front, since that's
 // the app the user is trying to control.
@@ -13,6 +14,7 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 const mouse = createMouse();
 let mainWindow = null;
 let hotkeyRegistered = false;
+let typingHotkeyRegistered = false;
 
 ipcMain.handle('handtap:click', (_event, position) => mouse.click(position));
 ipcMain.handle('handtap:scroll', () => mouse.scrollDown());
@@ -25,6 +27,7 @@ ipcMain.on('handtap:move', (_event, position) => {
   }
 });
 ipcMain.handle('handtap:hotkey', () => (hotkeyRegistered ? 'Ctrl + Alt + H' : null));
+ipcMain.handle('handtap:typing-hotkey', () => (typingHotkeyRegistered ? 'Ctrl + Alt + N' : null));
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();
@@ -68,6 +71,11 @@ app.whenReady().then(() => {
     mainWindow?.webContents.send('handtap:toggle-control');
   });
   if (!hotkeyRegistered) console.warn(`Could not register ${TOGGLE_HOTKEY}.`);
+  // A hotkey because clicking HandTap would take focus from the app being typed into.
+  typingHotkeyRegistered = globalShortcut.register(TYPING_HOTKEY, () => {
+    mainWindow?.webContents.send('handtap:toggle-typing');
+  });
+  if (!typingHotkeyRegistered) console.warn(`Could not register ${TYPING_HOTKEY}.`);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

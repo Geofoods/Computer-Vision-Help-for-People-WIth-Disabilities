@@ -200,6 +200,76 @@ export function createPinchDetector({ holdFrames = 2 } = {}) {
   };
 }
 
+// Each digit's raised fingers: T(humb), I(ndex), M(iddle), R(ing), P(inky).
+export const DIGIT_CHART = [
+  { digit: '1', fingers: 'I', label: 'Index' },
+  { digit: '2', fingers: 'IM', label: 'Index, middle' },
+  { digit: '3', fingers: 'IMR', label: 'Index, middle, ring' },
+  { digit: '4', fingers: 'IMRP', label: 'All four fingers, thumb tucked' },
+  { digit: '5', fingers: 'TIMRP', label: 'Open hand' },
+  { digit: '6', fingers: 'TI', label: 'Thumb, index' },
+  { digit: '7', fingers: 'TIM', label: 'Thumb, index, middle' },
+  { digit: '8', fingers: 'TIMR', label: 'Thumb, index, middle, ring' },
+  { digit: '9', fingers: 'TP', label: 'Thumb, pinky' },
+  { digit: '0', fingers: 'P', label: 'Pinky' },
+];
+const DIGIT_BY_FINGERS = Object.fromEntries(DIGIT_CHART.map(({ digit, fingers }) => [fingers, digit]));
+const PINKY_KNUCKLE = 17;
+const THUMB_JOINT = 3;
+// Between these, a finger is half bent and the frame says nothing about it.
+const FINGER_RAISED = 1.1;
+const THUMB_RAISED = 1.15;
+
+/** 'closed' for four curled fingers, a string like 'IM' for a clear pattern, or null mid-movement. */
+function readFingers(landmarks, aspect) {
+  const wrist = landmarks[WRIST];
+  const ratios = FINGERS.map(([joint, tip]) => distance(landmarks[tip], wrist, aspect) / distance(landmarks[joint], wrist, aspect));
+  if (ratios.every((ratio) => ratio < 1)) return 'closed';
+  if (ratios.some((ratio) => ratio >= 1 && ratio < FINGER_RAISED)) return null;
+  const pinkyBase = landmarks[PINKY_KNUCKLE];
+  const thumbRaised = distance(landmarks[THUMB_TIP], pinkyBase, aspect) > distance(landmarks[THUMB_JOINT], pinkyBase, aspect) * THUMB_RAISED;
+  return (thumbRaised ? 'T' : '') + ['I', 'M', 'R', 'P'].filter((_, finger) => ratios[finger] >= FINGER_RAISED).join('');
+}
+
+/**
+ * Finger typing: a pattern held for `holdFrames` becomes the armed digit, and closing
+ * the hand types it. The hold keeps the patterns passed through while fingers curl at
+ * different speeds from replacing the digit the person meant.
+ */
+export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
+  let armed = null;
+  let candidate = null;
+  let candidateCount = 0;
+  let closedCount = 0;
+
+  return {
+    update(landmarks, aspect = 1) {
+      const reading = readFingers(landmarks, aspect);
+      if (reading === 'closed') {
+        candidate = null;
+        candidateCount = 0;
+        closedCount += 1;
+        if (closedCount < closedFrames) return { digit: null, armed };
+        const digit = armed;
+        armed = null;
+        return { digit, armed };
+      }
+      closedCount = 0;
+      const seen = DIGIT_BY_FINGERS[reading] ?? null;
+      candidateCount = seen !== null && seen === candidate ? candidateCount + 1 : 1;
+      candidate = seen;
+      if (seen !== null && candidateCount >= holdFrames) armed = seen;
+      return { digit: null, armed };
+    },
+    reset() {
+      armed = null;
+      candidate = null;
+      candidateCount = 0;
+      closedCount = 0;
+    },
+  };
+}
+
 /**
  * One Euro filter: smooths heavily when the hand is nearly still, which removes
  * jitter, and lightly when it moves fast, which avoids lag.
