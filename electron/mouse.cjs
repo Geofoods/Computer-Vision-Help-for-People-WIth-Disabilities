@@ -1,4 +1,7 @@
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { comboToKeyCodes } = require('./keys.cjs');
 
 // A long-running PowerShell process that reads mouse and key commands from stdin. Starting
@@ -85,6 +88,97 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
 const SCROLL_DOWN_AMOUNT = -720;
 const SCROLL_UP_AMOUNT = 720;
 
+const MAC_HELPER_SOURCE = String.raw`
+import Foundation
+import CoreGraphics
+import AppKit
+
+let source = CGEventSource(stateID: .hidSystemState)
+let display = CGMainDisplayID()
+let bounds = CGDisplayBounds(display)
+let width = max(1.0, bounds.width - 1.0)
+let height = max(1.0, bounds.height - 1.0)
+var dragging = false
+let keyMap: [Int: CGKeyCode] = [
+  13: 36, 27: 53, 9: 48, 32: 49, 8: 51, 46: 117, 45: 114, 36: 115, 35: 119,
+  33: 116, 34: 121, 37: 123, 38: 126, 39: 124, 40: 125,
+  65: 0, 66: 11, 67: 8, 68: 2, 69: 14, 70: 3, 71: 5, 72: 4, 73: 34,
+  74: 38, 75: 40, 76: 37, 77: 46, 78: 45, 79: 31, 80: 35, 81: 12,
+  82: 15, 83: 1, 84: 17, 85: 32, 86: 9, 87: 13, 88: 7, 89: 16, 90: 6,
+  48: 29, 49: 18, 50: 19, 51: 20, 52: 21, 53: 23, 54: 22, 55: 26, 56: 28, 57: 25, 58: 26
+]
+let modifierMap: [Int: CGKeyCode] = [0x11: 55, 0x12: 58, 0x10: 56, 0x5b: 55]
+
+func point(_ parts: [Substring]) -> CGPoint {
+  let x = Double(parts[1]) ?? 0
+  let y = Double(parts[2]) ?? 0
+  return CGPoint(x: bounds.minX + x * width, y: bounds.minY + y * height)
+}
+
+func mouse(_ type: CGEventType, _ button: CGMouseButton, _ p: CGPoint) {
+  CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: p, mouseButton: button)?.post(tap: .cghidEventTap)
+}
+
+func key(_ code: Int, _ down: Bool, _ flags: CGEventFlags = []) {
+  guard let mapped = keyMap[code] ?? modifierMap[code] else { return }
+  let event = CGEvent(keyboardEventSource: source, virtualKey: mapped, keyDown: down)
+  event?.flags = flags
+  event?.post(tap: .cghidEventTap)
+}
+
+func modifier(_ code: Int) -> CGEventFlags? {
+  switch code {
+  case 0x11: return .maskCommand
+  case 0x12: return .maskAlternate
+  case 0x10: return .maskShift
+  case 0x5b: return .maskCommand
+  default: return nil
+  }
+}
+
+while let line = readLine() {
+  let parts = line.split(separator: " ")
+  guard let command = parts.first else { continue }
+  if command == "move" || command == "click" || command == "right-click" || command == "double-click" || command == "mouse-down" || command == "mouse-up" {
+    let p = point(parts)
+    CGWarpMouseCursorPosition(p)
+    if command == "click" { mouse(.leftMouseDown, .left, p); mouse(.leftMouseUp, .left, p) }
+    if command == "right-click" { mouse(.rightMouseDown, .right, p); mouse(.rightMouseUp, .right, p) }
+    if command == "double-click" {
+      mouse(.leftMouseDown, .left, p); mouse(.leftMouseUp, .left, p)
+      usleep(32000)
+      mouse(.leftMouseDown, .left, p); mouse(.leftMouseUp, .left, p)
+    }
+    if command == "mouse-down" { dragging = true; mouse(.leftMouseDown, .left, p) }
+    if command == "mouse-up" { dragging = false; mouse(.leftMouseUp, .left, p) }
+  } else if command == "release" {
+    if dragging { dragging = false; mouse(.leftMouseUp, .left, CGPoint(x: 0, y: 0)) }
+  } else if command == "scroll", parts.count > 1 {
+    let amount = Int32(parts[1]) ?? 0
+    CGEvent(scrollWheelEvent2Source: source, units: .pixel, wheelCount: 1, wheel1: amount, wheel2: 0, wheel3: 0)?.post(tap: .cghidEventTap)
+  } else if command == "keys", parts.count > 1 {
+    let codes = parts[1].split(separator: ",").compactMap { Int($0) }
+    var flags = CGEventFlags()
+    for code in codes {
+      if let value = modifier(code) {
+        flags.insert(value)
+        key(code, true, flags)
+      }
+    }
+    for code in codes where modifier(code) == nil { key(code, true, flags) }
+    for code in codes.reversed() {
+      if modifier(code) == nil { key(code, false, flags) }
+    }
+    for code in codes.reversed() {
+      if let value = modifier(code) {
+        flags.remove(value)
+        key(code, false, flags)
+      }
+    }
+  }
+}
+`;
+
 function assertPosition(position) {
   const x = Number(position?.x);
   const y = Number(position?.y);
@@ -97,15 +191,35 @@ function assertPosition(position) {
 function createMouse(spawnProcess = spawn) {
   let helper = null;
   let dragging = false;
+  let macHelperPath = null;
+
+  function getMacHelperPath() {
+    if (macHelperPath) return macHelperPath;
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'handtap-mac-'));
+    macHelperPath = path.join(directory, 'handtap-mouse');
+    const sourcePath = path.join(directory, 'handtap-mouse.swift');
+    fs.writeFileSync(sourcePath, MAC_HELPER_SOURCE, 'utf8');
+    const result = spawnSync('swiftc', ['-O', sourcePath, '-o', macHelperPath], { stdio: 'pipe' });
+    if (result.error || result.status !== 0) {
+      macHelperPath = null;
+      throw new Error(`Could not prepare macOS mouse control. Install Xcode Command Line Tools (${result.error?.message ?? result.stderr?.toString().trim() ?? 'swiftc failed'}).`);
+    }
+    return macHelperPath;
+  }
 
   function getHelper() {
     if (helper) return helper;
-    const encoded = Buffer.from(HELPER_SCRIPT, 'utf16le').toString('base64');
-    const child = spawnProcess(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
-      { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true },
-    );
+    let child;
+    if (process.platform === 'darwin') {
+      child = spawnProcess(getMacHelperPath(), [], { stdio: ['pipe', 'ignore', 'ignore'] });
+    } else {
+      const encoded = Buffer.from(HELPER_SCRIPT, 'utf16le').toString('base64');
+      child = spawnProcess(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encoded],
+        { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true },
+      );
+    }
     // Forget a dead helper so the next command starts a new one.
     const forget = () => {
       if (helper === child) {
@@ -121,8 +235,8 @@ function createMouse(spawnProcess = spawn) {
   }
 
   function assertSupported() {
-    if (process.platform !== 'win32') {
-      throw new Error('Native mouse control is currently supported on Windows.');
+    if (process.platform !== 'win32' && process.platform !== 'darwin') {
+      throw new Error('Native mouse control is currently supported on Windows and macOS.');
     }
   }
 
@@ -167,7 +281,7 @@ function createMouse(spawnProcess = spawn) {
     releaseDrag() {
       if (!dragging) return false;
       dragging = false;
-      if (helper && process.platform === 'win32') {
+      if (helper) {
         helper.stdin.write('release\n');
       }
       return true;
@@ -205,7 +319,7 @@ function createMouse(spawnProcess = spawn) {
     },
     // Starts the helper ahead of time so the first gesture isn't delayed.
     warmUp() {
-      if (process.platform === 'win32') getHelper();
+      if (process.platform === 'win32' || process.platform === 'darwin') getHelper();
     },
     dispose() {
       if (helper) {
