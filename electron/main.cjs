@@ -32,7 +32,9 @@ ipcMain.handle('handtap:right-click', (_event, position) => mouse.rightClick(pos
 ipcMain.handle('handtap:double-click', (_event, position) => mouse.doubleClick(position));
 ipcMain.handle('handtap:toggle-drag', (_event, position) => mouse.toggleDrag(position));
 ipcMain.handle('handtap:release-drag', () => mouse.releaseDrag());
-ipcMain.handle('handtap:scroll', (_event, delta) => (delta !== undefined ? mouse.scroll(delta) : mouse.scrollDown()));
+ipcMain.handle('handtap:scroll', (_event, amount) =>
+  amount === undefined ? mouse.scrollDown() : mouse.scrollBy(amount),
+);
 ipcMain.handle('handtap:scroll-up', () => mouse.scrollUp());
 ipcMain.handle('handtap:press-keys', (_event, combo) => mouse.pressKeys(combo));
 ipcMain.handle('handtap:system-status', () => ({

@@ -508,7 +508,7 @@ describe('Tier 1: Feature 11 — Native Right Click, Double Click & Scroll Up', 
     const mouse = createMouse(mockSpawn);
     mouse.scrollDown();
     assert.equal(mockSpawn.writes.length, 1);
-    assert.equal(mockSpawn.writes[0], 'scroll -1200\n');
+    assert.equal(mockSpawn.writes[0], 'scroll -720\n');
   });
 
   test('scroll delta command generator handles positive scroll-up delta', () => {

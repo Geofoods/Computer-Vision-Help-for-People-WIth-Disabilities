@@ -181,15 +181,21 @@ function createMouse(spawnProcess = spawn) {
       if (codes.length === 0) return;
       getHelper().stdin.write(`keys ${codes.join(',')}\n`);
     },
-    scrollDown() {
+    scrollBy(amount) {
       assertSupported();
-      getHelper().stdin.write(`scroll -1200\n`);
+      const value = Number(amount);
+      if (!Number.isFinite(value) || value === 0 || Math.abs(value) > 6000) {
+        throw new Error('Invalid scroll amount.');
+      }
+      getHelper().stdin.write(`scroll ${Math.trunc(value)}\n`);
+    },
+    scrollDown() {
+      this.scrollBy(SCROLL_DOWN_AMOUNT);
     },
     scrollUp() {
-      assertSupported();
-      getHelper().stdin.write(`scroll 1200\n`);
+      this.scrollBy(SCROLL_UP_AMOUNT);
     },
-    scroll(amount = -1200) {
+    scroll(amount = SCROLL_DOWN_AMOUNT) {
       assertSupported();
       const sanitized = Math.max(-100000, Math.min(100000, Math.round(Number(amount) || 0)));
       getHelper().stdin.write(`scroll ${sanitized}\n`);

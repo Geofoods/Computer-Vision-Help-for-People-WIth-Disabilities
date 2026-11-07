@@ -1989,6 +1989,40 @@ input[type='range'] {
   padding: 0;
 }
 
+.keybind-groups {
+  display: grid;
+  gap: 20px;
+}
+
+.keybind-group {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-inner);
+}
+
+.keybind-group-heading {
+  padding: 14px 12px 10px;
+  background: var(--raised);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.keybind-group-heading h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+}
+
+.keybind-group-heading p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 18px;
+}
+
 .keybind-row {
   position: relative;
   z-index: 1;
@@ -2001,7 +2035,7 @@ input[type='range'] {
   border-radius: var(--r-inner);
 }
 
-.keybind-row:first-child {
+.keybind-group .keybind-row:first-child {
   border-top: 0;
 }
 
