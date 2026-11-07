@@ -37,6 +37,7 @@ const KEYS = {
   'Next Track': 0xb0,
   'Previous Track': 0xb1,
 };
+const ACTIONS = new Set(['Left Click', 'Scroll Down']);
 for (let code = 0x41; code <= 0x5a; code += 1) KEYS[String.fromCharCode(code)] = code;
 for (let digit = 0; digit <= 9; digit += 1) KEYS[String(digit)] = 0x30 + digit;
 for (let number = 1; number <= 12; number += 1) KEYS[`F${number}`] = 0x6f + number;
@@ -46,6 +47,7 @@ const has = (table, name) => Object.prototype.hasOwnProperty.call(table, name);
 /** Returns codes in press order: modifiers, then the one main key. Throws on anything else. */
 function comboToKeyCodes(combo) {
   if (typeof combo !== 'string') throw new Error('Invalid key combination.');
+  if (ACTIONS.has(combo)) return [];
   const names = combo.split('+');
   const key = names.pop();
   const unique = new Set(names).size === names.length;

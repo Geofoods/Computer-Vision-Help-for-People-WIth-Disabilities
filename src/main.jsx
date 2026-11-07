@@ -58,6 +58,7 @@ function App() {
   const digitRef = useRef(createDigitDetector());
   const toggleHoldRef = useRef(createHoldDetector());
   const lastScrollRef = useRef(0);
+  const lastPositionRef = useRef(null);
   const tongueRef = useRef(false);
   const faceLandmarksRef = useRef(null);
   const filterXRef = useRef(createOneEuroFilter());
@@ -168,7 +169,7 @@ function App() {
     }
   }, []);
 
-  const triggerMovement = useCallback(async (id) => {
+  const triggerMovement = useCallback(async (id, position) => {
     // Number typing is made of poses, so only a swipe can mean something else while it's on.
     if (typingRef.current && !id.startsWith('swipe')) return;
     setLastMovement({ id });
@@ -178,14 +179,26 @@ function App() {
       return;
     }
     const combo = bindingsRef.current[id];
-    if (typingRef.current || !combo || !desktop || !controlRef.current) return;
+    if (typingRef.current || !combo) return;
+    // Handled here, ahead of the check below, because a click with mouse control off still
+    // presses the test button. A movement with no position of its own uses the cursor's.
+    if (combo === 'Left Click') {
+      const target = position ?? lastPositionRef.current;
+      if (target) triggerClick(target);
+      return;
+    }
+    if (!desktop || !controlRef.current) return;
     setNativeError('');
     try {
-      await desktop.pressKeys(combo);
+      if (combo === 'Scroll Down') {
+        await desktop.scrollDown();
+      } else {
+        await desktop.pressKeys(combo);
+      }
     } catch (keyError) {
       setNativeError(keyError.message || 'The shortcut could not be pressed.');
     }
-  }, []);
+  }, [triggerClick]);
 
   const typeDigit = useCallback(async (digit) => {
     setTyped((value) => (value + digit).slice(-TYPED_DISPLAY_LENGTH));
@@ -208,13 +221,14 @@ function App() {
       const now = performance.now();
       if (desktop && controlRef.current && now - lastScrollRef.current > SCROLL_COOLDOWN) {
         lastScrollRef.current = now;
-        desktop.scrollDown().catch((scrollError) => {
+        if (bindingsRef.current.tongueLick) triggerMovement('tongueLick');
+        else desktop.scrollDown().catch((scrollError) => {
           setNativeError(scrollError.message || 'The page could not be scrolled.');
         });
       }
     }
     tongueRef.current = licking;
-  }, []);
+  }, [triggerMovement]);
   onFaceRef.current = handleFace;
 
   // Drawn after the hand, which clears the canvas, on every frame so it doesn't flicker
@@ -297,6 +311,7 @@ function App() {
       setArmedDigit(null);
     }
     const screenPosition = toScreen(smoothed);
+    lastPositionRef.current = screenPosition;
 
     drawLandmarks(landmarks, pinching);
     drawMouth();
@@ -309,8 +324,11 @@ function App() {
     setGesture(typing ? 'Typing numbers' : pinching ? 'Tap detected' : 'Hand ready');
 
     if (desktop && controlRef.current && !typing) desktop.moveTo(screenPosition);
-    if (justPinched) triggerClick(screenPosition);
-    if (movement) triggerMovement(movement);
+    if (justPinched) {
+      if (bindingsRef.current.indexTap) triggerMovement('indexTap', screenPosition);
+      else triggerClick(screenPosition);
+    }
+    if (movement) triggerMovement(movement, screenPosition);
   }, [triggerClick, triggerMovement, typeDigit]);
   onLandmarksRef.current = handleLandmarks;
 
