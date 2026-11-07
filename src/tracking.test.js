@@ -93,6 +93,8 @@ test('head pitch recognizes looking up and down', () => {
   landmarks[1] = { x: 0.5, y: 0.4 };
   assert.equal(headPitch(landmarks), 'headTiltUp');
   landmarks[1] = { x: 0.5, y: 0.5 };
+  assert.equal(headPitch(landmarks), null);
+  landmarks[1] = { x: 0.5, y: 0.53 };
   assert.equal(headPitch(landmarks), 'headTiltDown');
   const shallow = headPitchStrength(landmarks, 0.2).intensity;
   landmarks[1] = { x: 0.5, y: 0.7 };

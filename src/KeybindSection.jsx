@@ -105,7 +105,7 @@ export function KeybindSection({ bindings, onChange, lastMovement, controlOn, is
                     combo={bindings[movement.id]}
                     flashing={flashingId === movement.id}
                     onChange={onChange}
-                    reservedFor={movement.id === typingToggle ? 'Turns number typing on and off' : movement.id === controlToggle ? 'Turns mouse control on and off' : undefined}
+                    reservedFor={movement.id === controlToggle ? 'Turns mouse control on and off' : undefined}
                   />
                 ))}
               </ul>

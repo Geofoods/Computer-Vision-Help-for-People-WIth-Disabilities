@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+      }
+      body {
+        display: flex;
+        align-items: flex-end;
+        font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+        user-select: none;
+      }
+      .hud {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        width: 100%;
+        padding: 10px 14px;
+        color: #efe9de;
+        background: #1f1f22;
+        border: 1px solid rgba(239, 233, 222, 0.14);
+        border-radius: 10px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      }
+      .dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #4cc38a;
+      }
+      .dot.idle {
+        background: #e5a00d;
+      }
+      .text {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+      strong,
+      small {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      strong {
+        font-size: 15px;
+        font-weight: 600;
+      }
+      small {
+        font-size: 11px;
+        color: rgba(239, 233, 222, 0.6);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hud" role="status" aria-live="polite">
+      <span class="dot idle" id="dot"></span>
+      <span class="text">
+        <strong id="gesture">Waiting for camera</strong>
+        <small id="mode">HandTap</small>
+      </span>
+    </div>
+    <script>
+      const gesture = document.getElementById('gesture');
+      const mode = document.getElementById('mode');
+      const dot = document.getElementById('dot');
+      window.handtapOverlay.onStatus((status) => {
+        gesture.textContent = status.gesture;
+        mode.textContent = status.mode;
+        dot.classList.toggle('idle', !status.live);
+      });
+    </script>
+  </body>
+</html>

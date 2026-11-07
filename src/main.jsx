@@ -5,7 +5,8 @@ import { HOLD_MS, REACH_ZONE, computeReachZone, createDigitDetector, createFaceG
 import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
 import { SAMPLES_PER_TEACH, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
-import { loadAutoStart, loadControlToggle, loadGestureSamples, loadReachZone, saveAutoStart, saveControlToggle, saveGestureSamples, saveReachZone } from './preferences.js';
+import { loadAutoStart, loadControlToggle, loadGestureSamples, loadReachZone, loadScrollSensitivity, saveAutoStart, saveControlToggle, saveGestureSamples, saveReachZone, saveScrollSensitivity } from './preferences.js';
+import { overlayStatus } from './overlay.js';
 import { KeybindSection } from './KeybindSection.jsx';
 import { NumberTyping } from './NumberTyping.jsx';
 import { SetupPanel } from './SetupPanel.jsx';
@@ -13,11 +14,13 @@ import './styles.css';
 
 const CLICK_COOLDOWN = 500;
 const SCROLL_COOLDOWN = 1200;
+const HEAD_SCROLL_INTERVAL = 100;
 const TYPED_DISPLAY_LENGTH = 24;
 const TEACH_COUNTDOWN = 1500;
 const MODE_NOTICE_TIME = 1600;
 // Heads move naturally while people talk and look around, so a tilt has to be held.
 const HEAD_TILT_HOLD = 400;
+const CONTROL_TOGGLE_HOLD = 1000;
 const REACH_CAPTURE_TIME = 5000;
 // A timer rather than requestAnimationFrame, which stops when the window is hidden
 // and would freeze the mouse the moment another app covers this one.
@@ -78,7 +81,7 @@ function App() {
   const movementRef = useRef(createMovementDetector());
   const digitRef = useRef(createDigitDetector());
   const toggleHoldRef = useRef(createHoldDetector());
-  const controlHoldRef = useRef(createHoldDetector());
+  const controlHoldRef = useRef(createHoldDetector({ holdMs: CONTROL_TOGGLE_HOLD }));
   // Set while learning from the hand. Nothing else acts on the hand during these.
   const teachRef = useRef(null);
   const reachCaptureRef = useRef(null);
@@ -99,6 +102,7 @@ function App() {
   const [strength, setStrength] = useState(0);
   const [clicks, setClicks] = useState(0);
   const [sensitivity, setSensitivity] = useState(50);
+  const [scrollSensitivity, setScrollSensitivity] = useState(() => loadScrollSensitivity(window.localStorage));
   const [nativeError, setNativeError] = useState('');
   const [controlOn, setControlOn] = useState(false);
   const [hotkey, setHotkey] = useState(null);
@@ -132,6 +136,8 @@ function App() {
   // from refs. Values captured in a closure would never update once the loop started.
   const sensitivityRef = useRef(sensitivity);
   sensitivityRef.current = sensitivity;
+  const scrollSensitivityRef = useRef(scrollSensitivity);
+  scrollSensitivityRef.current = scrollSensitivity;
   const controlRef = useRef(controlOn);
   controlRef.current = controlOn;
   const typingRef = useRef(typingOn);
@@ -150,6 +156,10 @@ function App() {
   bindingsRef.current = bindings;
 
   const setBinding = useCallback((id, combo) => {
+    // A gesture cannot both toggle number typing and send its shortcut. Let the
+    // user's explicit shortcut choice win, and they can choose another toggle
+    // in the Number typing section if needed.
+    if (id === typingToggleRef.current) setTypingToggle('');
     setBindings((current) => {
       const next = { ...current };
       next[id] = combo;
@@ -161,6 +171,7 @@ function App() {
   useEffect(() => saveTypingPreferences(window.localStorage, typingToggle, soundsOn), [typingToggle, soundsOn]);
   useEffect(() => saveControlToggle(window.localStorage, controlToggle), [controlToggle]);
   useEffect(() => saveAutoStart(window.localStorage, autoStart), [autoStart]);
+  useEffect(() => saveScrollSensitivity(window.localStorage, scrollSensitivity), [scrollSensitivity]);
   useEffect(() => saveReachZone(window.localStorage, reachZone === REACH_ZONE ? null : reachZone), [reachZone]);
   useEffect(() => saveGestureSamples(window.localStorage, gestureSamples), [gestureSamples]);
 
@@ -186,6 +197,11 @@ function App() {
     const timer = setTimeout(() => setModeNotice(null), MODE_NOTICE_TIME);
     return () => clearTimeout(timer);
   }, [modeNotice]);
+
+  // Keeps the always-on-top corner window showing the live gesture.
+  useEffect(() => {
+    desktop?.setOverlayStatus?.(overlayStatus({ gesture, cameraOn, controlOn, typingOn }));
+  }, [gesture, cameraOn, controlOn, typingOn]);
 
   const resetTracking = () => {
     pinchRef.current.reset();
@@ -259,7 +275,7 @@ function App() {
       return;
     }
     if (id === controlToggleRef.current) {
-      if (id.startsWith('swipe') && desktop && !typingRef.current) setControlOn((value) => !value);
+      if (id.startsWith('swipe') && desktop && !typingRef.current && !controlRef.current) setControlOn(true);
       return;
     }
     const combo = bindingsRef.current[id];
@@ -276,10 +292,11 @@ function App() {
     try {
       if (combo === 'Scroll Down' || combo === 'Scroll Up') {
         const direction = combo === 'Scroll Down' ? -1 : 1;
-        const amount = direction * Math.round(120 * (1 + 4 * Math.min(1, Math.max(0, intensity))));
-        if (intensity < 1 || id === 'headTiltUp' || id === 'headTiltDown') await desktop.scrollBy(amount);
-        else if (combo === 'Scroll Down') await desktop.scrollDown();
-        else await desktop.scrollBy(amount);
+        const sensitivityFactor = 0.25 + (scrollSensitivityRef.current / 100) * 0.75;
+        // Keep every scroll step the same size. Head tilt controls direction,
+        // not velocity, so small changes in posture cannot create large jumps.
+        const amount = direction * Math.max(8, Math.round(48 * sensitivityFactor));
+        await desktop.scrollBy(amount);
       } else {
         await desktop.pressKeys(combo);
       }
@@ -312,7 +329,7 @@ function App() {
     }
     const now = performance.now();
     if (headTiltHoldRef.current.update(Boolean(tilt), now)) triggerMovement(tilt, undefined, pitch?.intensity ?? 1);
-    if (pitch && headTiltHoldRef.current.hasFired() && now - headScrollRef.current.last >= 120) {
+    if (pitch && headTiltHoldRef.current.hasFired() && now - headScrollRef.current.last >= HEAD_SCROLL_INTERVAL) {
       headScrollRef.current = { id: pitch.id, last: now };
       triggerMovement(pitch.id, undefined, pitch.intensity);
     }
@@ -440,7 +457,9 @@ function App() {
     const poseIsToggle = Boolean(pose) && pose === typingToggleRef.current;
     const poseIsControlToggle = Boolean(pose) && pose === controlToggleRef.current && !typing;
     if (toggleHoldRef.current.update(poseIsToggle && !capturing, now)) setTypingOn((value) => !value);
-    if (controlHoldRef.current.update(poseIsControlToggle && !capturing && Boolean(desktop), now)) setControlOn((value) => !value);
+    // The hands-free gesture is intentionally one-way. A transient tracking
+    // re-detection must not unexpectedly disable active mouse control.
+    if (controlHoldRef.current.update(poseIsControlToggle && !capturing && Boolean(desktop), now) && !controlRef.current) setControlOn(true);
     setHolding(toggleHoldRef.current.isHolding() ? 'typing' : controlHoldRef.current.isHolding() ? 'control' : null);
     // Making these poses can bring the index near the thumb, which shouldn't also click.
     // A closing hand reads as a pinch on real photos, so a fist never clicks.
@@ -585,7 +604,9 @@ function App() {
   useEffect(() => {
     desktop?.getHotkey().then(setHotkey);
     return desktop?.onToggleControl(() => {
-      if (streamRef.current) setControlOn((value) => !value);
+      // The global hotkey can wake control, but only the on-screen button can
+      // intentionally turn it off.
+      if (streamRef.current) setControlOn(true);
     });
   }, []);
 
@@ -618,7 +639,7 @@ function App() {
             <li>Sit about an arm's length from the camera, with your whole hand in good light.</li>
             <li>Moving your hand inside the dashed box moves the cursor across your whole screen.</li>
             <li>If taps are missed, raise the sensitivity. If clicks fire by accident, lower it.</li>
-            <li>To get the regular mouse back, lower your hand out of view{hotkey ? ` or press ${hotkey}` : ''}.</li>
+            <li>Mouse control stays on until you click its button to turn it off{hotkey ? `; ${hotkey} can turn it on` : ''}.</li>
             <li>While mouse control is on, sticking out your tongue scrolls down the window under the cursor.</li>
             <li>If reaching the screen's corners is hard, calibrate your reach so a smaller movement covers the whole screen.</li>
             <li>To type a number, turn on number typing, hold up its fingers until it shows as ready, then close your hand. The chart under Number typing shows each pattern, and you can choose the movement that turns it on and off.</li>
@@ -747,6 +768,16 @@ function App() {
         </div>
       </section>
 
+      <KeybindSection
+        bindings={bindings}
+        onChange={setBinding}
+        lastMovement={lastMovement}
+        controlOn={controlOn}
+        isDesktop={Boolean(desktop)}
+        typingToggle={typingToggle}
+        controlToggle={controlToggle}
+      />
+
       <SetupPanel
         cameraOn={cameraOn}
         isDesktop={Boolean(desktop)}
@@ -760,6 +791,8 @@ function App() {
         }}
         autoStart={autoStart}
         onChangeAutoStart={setAutoStart}
+        scrollSensitivity={scrollSensitivity}
+        onChangeScrollSensitivity={setScrollSensitivity}
         controlToggle={controlToggle}
         onChangeControlToggle={setControlToggle}
         typingToggle={typingToggle}
@@ -785,16 +818,6 @@ function App() {
         teaching={teaching}
         onTeach={teachGesture}
         onForget={(label) => setGestureSamples((current) => forgetLabel(current, label))}
-      />
-
-      <KeybindSection
-        bindings={bindings}
-        onChange={setBinding}
-        lastMovement={lastMovement}
-        controlOn={controlOn}
-        isDesktop={Boolean(desktop)}
-        typingToggle={typingToggle}
-        controlToggle={controlToggle}
       />
 
       <footer><span>HandTap is built for local, hands-free access</span><span>All camera processing stays on this computer</span></footer>

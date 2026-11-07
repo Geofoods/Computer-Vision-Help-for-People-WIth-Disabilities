@@ -7,6 +7,7 @@ const REACH_KEY = 'handtap.reachZone';
 const AUTO_START_KEY = 'handtap.autoStart';
 const CONTROL_TOGGLE_KEY = 'handtap.controlToggle';
 const GESTURES_KEY = 'handtap.gestures';
+const SCROLL_SENSITIVITY_KEY = 'handtap.scrollSensitivity';
 
 function read(storage, key) {
   try {
@@ -36,6 +37,11 @@ export function loadAutoStart(storage) {
   return read(storage, AUTO_START_KEY) === true;
 }
 
+export function loadScrollSensitivity(storage) {
+  const value = read(storage, SCROLL_SENSITIVITY_KEY);
+  return Number.isFinite(value) && value >= 10 && value <= 100 ? value : 30;
+}
+
 /** Defaults to a thumb tap that nothing else is using, or to no movement if neither is free. */
 export function loadControlToggle(storage, typingToggle, bindings) {
   const stored = read(storage, CONTROL_TOGGLE_KEY);
@@ -54,5 +60,6 @@ export function loadGestureSamples(storage) {
 
 export const saveReachZone = (storage, zone) => write(storage, REACH_KEY, zone);
 export const saveAutoStart = (storage, value) => write(storage, AUTO_START_KEY, value);
+export const saveScrollSensitivity = (storage, value) => write(storage, SCROLL_SENSITIVITY_KEY, value);
 export const saveControlToggle = (storage, value) => write(storage, CONTROL_TOGGLE_KEY, value);
 export const saveGestureSamples = (storage, samples) => write(storage, GESTURES_KEY, samples);

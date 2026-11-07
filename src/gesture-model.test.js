@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { GESTURE_CLOSED, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
 import { REACH_ZONE, computeReachZone, createDigitDetector, toScreen } from './tracking.js';
-import { loadAutoStart, loadControlToggle, loadGestureSamples, loadReachZone, saveGestureSamples, saveReachZone } from './preferences.js';
+import { loadAutoStart, loadControlToggle, loadGestureSamples, loadReachZone, loadScrollSensitivity, saveGestureSamples, saveReachZone, saveScrollSensitivity } from './preferences.js';
 
 const hands = JSON.parse(readFileSync(new URL('./fixtures/real-hands.json', import.meta.url), 'utf8'));
 
@@ -124,6 +124,10 @@ test('saved reach zones and gestures load back, and bad ones are ignored', () =>
   assert.deepEqual(loadGestureSamples(storage), samples);
   assert.deepEqual(loadGestureSamples(memoryStorage({ 'handtap.gestures': '{"1":[[1,2]],"2":"x"}' })), {});
   assert.equal(loadAutoStart(memoryStorage()), false);
+  assert.equal(loadScrollSensitivity(memoryStorage()), 30);
+  saveScrollSensitivity(storage, 65);
+  assert.equal(loadScrollSensitivity(storage), 65);
+  assert.equal(loadScrollSensitivity(memoryStorage({ 'handtap.scrollSensitivity': '5' })), 30);
 });
 
 test('mouse control takes a thumb tap nothing else is using', () => {
