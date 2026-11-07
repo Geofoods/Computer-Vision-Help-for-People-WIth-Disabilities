@@ -34,6 +34,7 @@ function App() {
   const lastClickRef = useRef(0);
   const lastScrollRef = useRef(0);
   const tongueRef = useRef(false);
+  const faceLandmarksRef = useRef(null);
   const demoButtonRef = useRef(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -42,6 +43,7 @@ function App() {
   const [confidence, setConfidence] = useState(0);
   const [clicks, setClicks] = useState(0);
   const [tongueLicks, setTongueLicks] = useState(0);
+  const [tongueActive, setTongueActive] = useState(false);
   const [sensitivity, setSensitivity] = useState(50);
   const [nativeError, setNativeError] = useState('');
   const [workerReady, setWorkerReady] = useState(false);
@@ -56,11 +58,38 @@ function App() {
     });
   }, []);
 
-  const handleFace = useCallback((blendshapes) => {
+  const drawFace = useCallback((landmarks, active) => {
+    faceLandmarksRef.current = landmarks;
+    const canvas = canvasRef.current;
+    if (!canvas || !landmarks) return;
+    const context = canvas.getContext('2d');
+    const upperLip = landmarks[13];
+    const lowerLip = landmarks[14];
+    const leftCorner = landmarks[61];
+    const rightCorner = landmarks[291];
+    if (!upperLip || !lowerLip || !leftCorner || !rightCorner) return;
+    context.strokeStyle = active ? '#67e8a4' : '#f2b84b';
+    context.lineWidth = 5;
+    context.beginPath();
+    context.ellipse(
+      ((leftCorner.x + rightCorner.x) / 2) * canvas.width,
+      ((upperLip.y + lowerLip.y) / 2) * canvas.height,
+      Math.max(12, Math.abs(rightCorner.x - leftCorner.x) * canvas.width / 2),
+      Math.max(8, Math.abs(lowerLip.y - upperLip.y) * canvas.height / 2 + 5),
+      0,
+      0,
+      Math.PI * 2,
+    );
+    context.stroke();
+  }, []);
+
+  const handleFace = useCallback((blendshapes, landmarks) => {
     const jawOpen = blendshapes.find(({ categoryName }) => categoryName === 'jawOpen')?.score || 0;
     const mouthPucker = blendshapes.find(({ categoryName }) => categoryName === 'mouthPucker')?.score || 0;
     const tongueOut = blendshapes.find(({ categoryName }) => categoryName === 'tongueOut')?.score || 0;
     const licking = tongueOut > 0.2 || (jawOpen > 0.35 && mouthPucker > 0.08);
+    setTongueActive(licking);
+    drawFace(landmarks, licking);
     const now = performance.now();
     if (licking && !tongueRef.current) {
       setTongueLicks((value) => value + 1);
@@ -72,7 +101,7 @@ function App() {
       }
     }
     tongueRef.current = licking;
-  }, []);
+  }, [drawFace]);
 
   const stopCamera = useCallback(() => {
     if (captureRef.current) clearInterval(captureRef.current);
@@ -88,6 +117,7 @@ function App() {
     setCameraOn(false);
     setGesture('Camera paused');
     setConfidence(0);
+    setTongueActive(false);
     pinchRef.current = false;
     cursorRef.current?.classList.remove('visible');
   }, []);
@@ -188,7 +218,7 @@ function App() {
         const faceResult = faceDetectorRef.current?.detectForVideo(video, timestamp);
         processingRef.current = false;
         handleLandmarks(result.landmarks?.[0] || null);
-        handleFace(faceResult?.faceBlendshapes?.[0]?.categories || []);
+        handleFace(faceResult?.faceBlendshapes?.[0]?.categories || [], faceResult?.faceLandmarks?.[0] || null);
         return;
       }
       if (!workerRef.current || !workerReady) {
@@ -220,7 +250,7 @@ function App() {
         } else if (event.data.type === 'result') {
           processingRef.current = false;
           handleLandmarks(event.data.landmarks);
-          handleFace(event.data.faceBlendshapes || []);
+          handleFace(event.data.faceBlendshapes || [], event.data.faceLandmarks || null);
         } else if (event.data.type === 'error') {
           worker.terminate();
           workerRef.current = null;
@@ -304,6 +334,7 @@ function App() {
           </div>
           {error && <div className="error-message"><AlertCircle size={16} /> {error}</div>}
           <div className="camera-hint"><MousePointer2 size={14} /> Your real cursor follows your index finger across the screen</div>
+          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {tongueActive ? 'lick detected' : 'ready'} · {tongueLicks} licks</div>
           <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
             {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
           </button>

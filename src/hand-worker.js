@@ -42,6 +42,7 @@ self.onmessage = async (event) => {
       self.postMessage({
         type: 'result',
         landmarks: result.landmarks?.[0] || null,
+        faceLandmarks: faceResult?.faceLandmarks?.[0] || null,
         faceBlendshapes: faceResult?.faceBlendshapes?.[0]?.categories || [],
       });
     } finally {
