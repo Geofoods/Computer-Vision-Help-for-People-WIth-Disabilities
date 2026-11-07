@@ -1,36 +1,27 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import { REACH_ZONE, createOneEuroFilter, createPinchDetector, cursorPoint, pinchRatio, toScreen } from './tracking.js';
 import './styles.css';
 
-// Both resolve next to index.html, so the app also works with no internet connection.
-const MODEL_URL = new URL('models/hand_landmarker.task', window.location.href).toString();
-const WASM_URL = new URL('wasm', window.location.href).toString();
 const CLICK_COOLDOWN = 500;
 // A timer rather than requestAnimationFrame, which stops when the window is hidden
 // and would freeze the mouse the moment another app covers this one.
 const FRAME_INTERVAL = 33;
 const desktop = window.handtapDesktop;
 
-async function createDetector() {
-  const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-  const create = (delegate) =>
-    HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate },
-      runningMode: 'VIDEO',
-      numHands: 1,
-      minHandDetectionConfidence: 0.55,
-      minHandPresenceConfidence: 0.55,
-      minTrackingConfidence: 0.55,
-    });
-  try {
-    return await create('GPU');
-  } catch (gpuError) {
-    console.warn('GPU hand tracking is unavailable, using the CPU instead.', gpuError);
-    return create('CPU');
-  }
+// Starts the detection worker and resolves once its model has loaded.
+function createWorker() {
+  return new Promise((resolve, reject) => {
+    // Resolved next to index.html, where the bundled worker is served in dev and in the build.
+    const worker = new Worker(new URL('hand-worker.js', window.location.href));
+    worker.onmessage = ({ data }) => {
+      if (data.type === 'ready') resolve(worker);
+      else if (data.type === 'error') reject(new Error(data.message));
+    };
+    worker.onerror = (event) => reject(new Error(event.message || 'The hand tracking worker failed to start.'));
+    worker.postMessage({ type: 'init' });
+  });
 }
 
 function cameraErrorMessage(error) {
@@ -45,7 +36,10 @@ function App() {
   const viewRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  const detectorRef = useRef(null);
+  const workerRef = useRef(null);
+  // True while a frame is out with the worker, so frames are dropped rather than queued.
+  const busyRef = useRef(false);
+  const onLandmarksRef = useRef(() => {});
   const timerRef = useRef(null);
   // Starts at 0 so the placeholder frame shown before the camera's first real frame is skipped.
   const lastVideoTimeRef = useRef(0);
@@ -90,6 +84,7 @@ function App() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     lastVideoTimeRef.current = 0;
+    busyRef.current = false;
     setCameraOn(false);
     setControlOn(false);
     setGesture('Camera paused');
@@ -137,9 +132,8 @@ function App() {
     context.stroke();
   };
 
-  const processFrame = useCallback((now) => {
+  const handleLandmarks = useCallback((landmarks, now) => {
     const video = videoRef.current;
-    const landmarks = detectorRef.current.detectForVideo(video, now).landmarks?.[0];
     if (!landmarks) {
       setGesture('Show one hand to camera');
       resetTracking();
@@ -164,22 +158,27 @@ function App() {
     if (desktop && controlRef.current) desktop.moveTo(screenPosition);
     if (justPinched) triggerClick(screenPosition);
   }, [triggerClick]);
+  onLandmarksRef.current = handleLandmarks;
 
   const scheduleFrame = useCallback(() => {
-    timerRef.current = setTimeout(() => {
+    timerRef.current = setTimeout(async () => {
       const video = videoRef.current;
-      try {
-        // Skip timer ticks that arrive before the camera has a new frame.
-        if (video && detectorRef.current && video.readyState >= 2 && video.currentTime !== lastVideoTimeRef.current) {
-          lastVideoTimeRef.current = video.currentTime;
-          processFrame(performance.now());
+      const worker = workerRef.current;
+      // Skip ticks that arrive before the camera has a new frame, or while the worker is busy.
+      if (video && worker && !busyRef.current && video.readyState >= 2 && video.currentTime !== lastVideoTimeRef.current) {
+        lastVideoTimeRef.current = video.currentTime;
+        busyRef.current = true;
+        try {
+          const bitmap = await createImageBitmap(video);
+          worker.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
+        } catch (frameError) {
+          busyRef.current = false;
+          console.error(frameError);
         }
-      } catch (frameError) {
-        console.error(frameError);
       }
       if (streamRef.current) scheduleFrame();
     }, FRAME_INTERVAL);
-  }, [processFrame]);
+  }, []);
 
   const startCamera = async () => {
     setLoading(true);
@@ -205,7 +204,16 @@ function App() {
       return;
     }
     try {
-      detectorRef.current ??= await createDetector();
+      if (!workerRef.current) {
+        // Kept across pauses, so restarting the camera doesn't reload the model.
+        const worker = await createWorker();
+        worker.onmessage = ({ data }) => {
+          if (data.type !== 'result') return;
+          busyRef.current = false;
+          if (streamRef.current) onLandmarksRef.current(data.landmarks, performance.now());
+        };
+        workerRef.current = worker;
+      }
       // The camera may have stopped while the model was loading.
       if (!streamRef.current) return;
       setCameraOn(true);
@@ -215,13 +223,17 @@ function App() {
       console.error(modelError);
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
-      setError('Hand tracking could not load. Restart HandTap and try again.');
+      setError(`Hand tracking could not load (${modelError.message}). Restart HandTap and try again.`);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => () => stopCamera(), [stopCamera]);
+  useEffect(() => () => {
+    stopCamera();
+    workerRef.current?.terminate();
+    workerRef.current = null;
+  }, [stopCamera]);
 
   useEffect(() => {
     desktop?.getHotkey().then(setHotkey);
