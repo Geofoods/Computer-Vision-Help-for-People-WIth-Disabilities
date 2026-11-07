@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import keys from '../electron/keys.cjs';
-import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, loadBindings, saveBindings } from './keybinds.js';
+import { MOVEMENTS, PRESET_GROUPS, TOGGLE_TYPING, comboFromEvent, loadBindings, saveBindings } from './keybinds.js';
 import { createMovementDetector } from './tracking.js';
 
 const { comboToKeyCodes } = keys;
@@ -129,7 +129,9 @@ test('comboToKeyCodes rejects anything it does not recognise', () => {
 
 test('every preset is a combination the desktop side accepts', () => {
   for (const { presets } of PRESET_GROUPS) {
-    for (const { combo } of presets) assert.doesNotThrow(() => comboToKeyCodes(combo), combo);
+    for (const { combo } of presets) {
+      if (combo !== TOGGLE_TYPING) assert.doesNotThrow(() => comboToKeyCodes(combo), combo);
+    }
   }
 });
 

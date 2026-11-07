@@ -2,6 +2,9 @@
 
 const STORAGE_KEY = 'handtap.keybinds';
 
+// Stored like a shortcut, but handled inside the app rather than pressed.
+export const TOGGLE_TYPING = 'NumberTyping';
+
 export const MOVEMENTS = [
   { id: 'swipeLeft', label: 'Swipe left', hint: 'Sweep your hand quickly to the left' },
   { id: 'swipeRight', label: 'Swipe right', hint: 'Sweep your hand quickly to the right' },
@@ -14,6 +17,10 @@ export const MOVEMENTS = [
 
 // Listed so nobody has to physically press a shortcut, which may be the reason they use this app.
 export const PRESET_GROUPS = [
+  {
+    label: 'HandTap',
+    presets: [{ label: 'Turn number typing on or off (swipes work best)', combo: TOGGLE_TYPING }],
+  },
   {
     label: 'Editing',
     presets: [
