@@ -7,6 +7,11 @@ const REACH_KEY = 'handtap.reachZone';
 const AUTO_START_KEY = 'handtap.autoStart';
 const CONTROL_TOGGLE_KEY = 'handtap.controlToggle';
 const GESTURES_KEY = 'handtap.gestures';
+const SENSITIVITY_KEY = 'handtap.sensitivity';
+const PROFILE_KEY = 'handtap.filterProfile';
+const THEME_KEY = 'handtap.theme';
+const SHAPE_KEY = 'handtap.shape';
+const OVERLAY_KEY = 'handtap.overlayEnabled';
 const SCROLL_SENSITIVITY_KEY = 'handtap.scrollSensitivity';
 
 function read(storage, key) {
@@ -63,3 +68,80 @@ export const saveAutoStart = (storage, value) => write(storage, AUTO_START_KEY, 
 export const saveScrollSensitivity = (storage, value) => write(storage, SCROLL_SENSITIVITY_KEY, value);
 export const saveControlToggle = (storage, value) => write(storage, CONTROL_TOGGLE_KEY, value);
 export const saveGestureSamples = (storage, samples) => write(storage, GESTURES_KEY, samples);
+
+export function loadSensitivity(storage) {
+  try {
+    const raw = storage.getItem(SENSITIVITY_KEY);
+    if (raw === null || raw === undefined) return 50;
+    const val = Number(raw);
+    return Number.isFinite(val) && val >= 0 && val <= 100 ? val : 50;
+  } catch {
+    return 50;
+  }
+}
+
+export function saveSensitivity(storage, val) {
+  try {
+    storage.setItem(SENSITIVITY_KEY, String(val));
+  } catch (error) {
+    console.warn(`Could not save ${SENSITIVITY_KEY}.`, error);
+  }
+}
+
+export function loadFilterProfile(storage) {
+  try {
+    const val = storage.getItem(PROFILE_KEY);
+    return ['steady', 'balanced', 'agile'].includes(val) ? val : 'balanced';
+  } catch {
+    return 'balanced';
+  }
+}
+
+export function saveFilterProfile(storage, profile) {
+  try {
+    storage.setItem(PROFILE_KEY, profile);
+  } catch (error) {
+    console.warn(`Could not save ${PROFILE_KEY}.`, error);
+  }
+}
+
+export function loadTheme(storage) {
+  try {
+    const val = storage.getItem(THEME_KEY);
+    return val === 'light' || val === 'dark' ? val : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+export function saveTheme(storage, theme) {
+  try {
+    storage.setItem(THEME_KEY, theme === 'light' ? 'light' : 'dark');
+  } catch (error) {
+    console.warn(`Could not save ${THEME_KEY}.`, error);
+  }
+}
+
+export function loadShape(storage) {
+  try {
+    const val = storage.getItem(SHAPE_KEY);
+    return ['rounded', 'pill', 'sharp'].includes(val) ? val : 'rounded';
+  } catch {
+    return 'rounded';
+  }
+}
+
+export function saveShape(storage, shape) {
+  try {
+    if (['rounded', 'pill', 'sharp'].includes(shape)) storage.setItem(SHAPE_KEY, shape);
+  } catch (error) {
+    console.warn(`Could not save ${SHAPE_KEY}.`, error);
+  }
+}
+
+export function loadOverlayEnabled(storage) {
+  const val = read(storage, OVERLAY_KEY);
+  return val === false ? false : true;
+}
+
+export const saveOverlayEnabled = (storage, enabled) => write(storage, OVERLAY_KEY, Boolean(enabled));

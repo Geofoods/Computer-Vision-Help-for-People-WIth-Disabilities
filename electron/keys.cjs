@@ -37,7 +37,14 @@ const KEYS = {
   'Next Track': 0xb0,
   'Previous Track': 0xb1,
 };
-const ACTIONS = new Set(['Left Click', 'Scroll Down', 'Scroll Up']);
+const ACTIONS = new Set([
+  'Left Click',
+  'Right Click',
+  'Double Click',
+  'Toggle Drag',
+  'Scroll Down',
+  'Scroll Up',
+]);
 for (let code = 0x41; code <= 0x5a; code += 1) KEYS[String.fromCharCode(code)] = code;
 for (let digit = 0; digit <= 9; digit += 1) KEYS[String(digit)] = 0x30 + digit;
 for (let number = 1; number <= 12; number += 1) KEYS[`F${number}`] = 0x6f + number;
@@ -57,4 +64,4 @@ function comboToKeyCodes(combo) {
   return [...names.map((name) => MODIFIERS[name]), KEYS[key]];
 }
 
-module.exports = { comboToKeyCodes };
+module.exports = { comboToKeyCodes, ACTIONS };
