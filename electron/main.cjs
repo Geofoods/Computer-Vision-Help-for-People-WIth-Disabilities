@@ -1,4 +1,14 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, session, screen } = require('electron');
+const electron = require('electron');
+// Editor terminals set ELECTRON_RUN_AS_NODE, which makes Electron start in plain Node mode.
+if (typeof electron === 'string') {
+  const { spawn } = require('node:child_process');
+  const env = { ...process.env };
+  delete env.ELECTRON_RUN_AS_NODE;
+  const child = spawn(electron, process.argv.slice(1), { stdio: 'inherit', env });
+  child.on('exit', (code) => process.exit(code ?? 0));
+  return;
+}
+const { app, BrowserWindow, globalShortcut, ipcMain, session, screen } = electron;
 const path = require('node:path');
 const { createMouse } = require('./mouse.cjs');
 
@@ -38,7 +48,7 @@ function createWindow() {
     minWidth: 860,
     minHeight: 680,
     title: 'HandTap',
-    backgroundColor: '#f7f8fc',
+    backgroundColor: '#f7f4ee',
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),

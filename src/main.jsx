@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
+import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Power } from 'lucide-react';
 import { REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
@@ -295,8 +295,8 @@ function App() {
     if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
     const [upperLip, lowerLip, leftCorner, rightCorner] = [13, 14, 61, 291].map((index) => landmarks[index]);
     const context = canvas.getContext('2d');
-    context.strokeStyle = tongueRef.current ? '#67e8a4' : '#f2b84b';
-    context.lineWidth = 5;
+    context.strokeStyle = tongueRef.current ? '#4cc38a' : '#e5a00d';
+    context.lineWidth = 4;
     context.beginPath();
     context.ellipse(
       ((leftCorner.x + rightCorner.x) / 2) * canvas.width,
@@ -318,16 +318,16 @@ function App() {
     if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
     if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
     context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = '#9b8cff';
+    context.fillStyle = '#efe9de';
     landmarks.forEach(({ x, y }) => {
       context.beginPath();
-      context.arc(x * canvas.width, y * canvas.height, 5, 0, Math.PI * 2);
+      context.arc(x * canvas.width, y * canvas.height, 4, 0, Math.PI * 2);
       context.fill();
     });
     const thumb = landmarks[4];
     const index = landmarks[8];
-    context.strokeStyle = pinching ? '#67e8a4' : '#f2b84b';
-    context.lineWidth = 4;
+    context.strokeStyle = pinching ? '#4cc38a' : '#e5a00d';
+    context.lineWidth = 3;
     context.beginPath();
     context.moveTo(thumb.x * canvas.width, thumb.y * canvas.height);
     context.lineTo(index.x * canvas.width, index.y * canvas.height);
@@ -525,8 +525,8 @@ function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark"><Hand size={21} strokeWidth={2.5} /></span>
-          <span>hand<span>tap</span></span>
+          <span className="brand-mark"><Hand size={16} strokeWidth={1.5} /></span>
+          <span>HandTap</span>
         </div>
         <div className="topbar-actions">
           <span className="privacy-pill"><span className="privacy-dot" /> Camera stays on this device</span>
@@ -537,7 +537,8 @@ function App() {
             aria-controls="help-panel"
             onClick={() => setHelpOpen((value) => !value)}
           >
-            <CircleHelp size={20} />
+            <CircleHelp size={16} strokeWidth={1.5} />
+            <span>Help</span>
           </button>
         </div>
       </header>
@@ -560,20 +561,20 @@ function App() {
 
       <section className="hero">
         <div className="hero-copy">
-          <div className="eyebrow"><Sparkles size={15} /> Accessible interaction</div>
-          <h1>Click with a<br /><em>simple tap.</em></h1>
+          <div className="eyebrow">Hands-free mouse and keyboard</div>
+          <h1>Control your computer with one hand</h1>
           <p>Use your camera to move the mouse with your hand, and tap your thumb and index finger to click. No mouse or touchpad required.</p>
           <div className="how-it-works">
-            <div className="step"><span>1</span><div><strong>Start your camera</strong><small>Allow access when asked</small></div></div>
-            <div className="step"><span>2</span><div><strong>Tap thumb + index</strong><small>Try it on the test button below</small></div></div>
-            <div className="step"><span>3</span><div><strong>Turn on mouse control</strong><small>Your hand now moves the real cursor</small></div></div>
+            <div className="step"><kbd>1</kbd><div><strong>Start your camera</strong><small>Allow access when asked</small></div></div>
+            <div className="step"><kbd>2</kbd><div><strong>Tap thumb and index</strong><small>Try it on the test button below</small></div></div>
+            <div className="step"><kbd>3</kbd><div><strong>Turn on mouse control</strong><small>Your hand now moves the real cursor</small></div></div>
           </div>
         </div>
 
         <div className="camera-card">
           <div className="camera-header">
             <div><span className={`status-dot ${cameraOn ? 'live' : ''}`} /> {cameraOn ? 'Camera active' : 'Camera preview'}</div>
-            <span className="live-label">{cameraOn ? 'LIVE' : 'READY'}</span>
+            <span className="live-label">{cameraOn ? 'Live' : 'Ready'}</span>
           </div>
           <div ref={viewRef} className="camera-view">
             <video
@@ -600,54 +601,73 @@ function App() {
                 }}
               />
             )}
-            <div ref={cursorRef} className="fake-cursor" aria-hidden="true"><MousePointer2 size={26} /></div>
-            {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={28} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
+            <div ref={cursorRef} className="fake-cursor" aria-hidden="true"><MousePointer2 size={20} strokeWidth={1.5} /></div>
+            {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={16} strokeWidth={1.5} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
             {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
           </div>
-          {error && <div className="error-message" role="alert"><AlertCircle size={16} /> {error}</div>}
-          <div className="camera-hint"><MousePointer2 size={14} /> The dashed box is your whole screen</div>
-          <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue tracking: {!tongueAvailable ? 'unavailable' : tongueActive ? (controlOn ? 'scrolling down' : 'lick detected') : 'ready'} · {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div>
-          <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
-            {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
-          </button>
-          {desktop ? (
-            <button
-              className={`control-button ${controlOn ? 'active' : ''}`}
-              aria-pressed={controlOn}
-              disabled={!cameraOn}
-              onClick={() => setControlOn((value) => !value)}
-            >
-              <Power size={15} /> {controlOn ? 'Mouse control is on' : 'Turn on mouse control'}
-              {hotkey && <kbd>{hotkey}</kbd>}
+          {error && <div className="error-message" role="alert"><AlertCircle size={16} strokeWidth={1.5} /> {error}</div>}
+          <div className="camera-meta">
+            <div className="camera-hint"><MousePointer2 size={16} strokeWidth={1.5} /> The dashed frame maps to your full screen</div>
+            <div className={`tongue-status ${tongueActive ? 'active' : ''}`}><span /> Tongue: {!tongueAvailable ? 'unavailable' : tongueActive ? (controlOn ? 'scrolling down' : 'lick detected') : 'ready'} · {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div>
+          </div>
+          <div className="camera-controls">
+            <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
+              {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
             </button>
-          ) : (
-            <p className="camera-hint">Controlling the real mouse needs the HandTap desktop app.</p>
-          )}
+            {desktop ? (
+              <button
+                className={`control-button ${controlOn ? 'active' : ''}`}
+                aria-pressed={controlOn}
+                disabled={!cameraOn}
+                onClick={() => setControlOn((value) => !value)}
+              >
+                <Power size={16} strokeWidth={1.5} /> {controlOn ? 'Mouse control is on' : 'Turn on mouse control'}
+                {hotkey && <kbd>{hotkey}</kbd>}
+              </button>
+            ) : (
+              <p className="camera-hint">Controlling the real mouse needs the HandTap desktop app</p>
+            )}
+          </div>
         </div>
       </section>
 
       <section className="workspace">
-        <div className="section-heading"><div><p className="eyebrow">Live feedback</p><h2>Make a test click</h2></div><div className="feedback-counts"><div className="click-count"><MousePointer2 size={16} /> {clicks} {clicks === 1 ? 'click' : 'clicks'}</div><div className="click-count lick-count"><Hand size={16} /> {tongueLicks} {tongueLicks === 1 ? 'lick' : 'licks'}</div></div></div>
+        <div className="section-heading">
+          <div>
+            <p className="eyebrow">Live feedback</p>
+            <h2>Make a test click</h2>
+          </div>
+          <div className="feedback-counts">
+            <div className="click-count"><MousePointer2 size={16} strokeWidth={1.5} /> <span>{clicks}</span> {clicks === 1 ? 'click' : 'clicks'}</div>
+            <div className="click-count lick-count"><Hand size={16} strokeWidth={1.5} /> <span>{tongueLicks}</span> {tongueLicks === 1 ? 'lick' : 'licks'}</div>
+          </div>
+        </div>
         <div className="feedback-grid">
           <div className="demo-panel">
-            <p className="panel-label">Interaction area</p>
+            <p className="panel-label">Interaction target</p>
             <button ref={demoButtonRef} className="demo-button" onClick={() => setDemoClicks((value) => value + 1)}>
               {demoClicks > 0
-                ? <span key={demoClicks} className="demo-flash"><Check size={23} /></span>
-                : <MousePointer2 size={23} />}
-              <span>{demoClicks > 0 ? `Clicked ${demoClicks} ${demoClicks === 1 ? 'time' : 'times'}` : 'Tap your fingers to press me'}</span>
+                ? <span key={demoClicks} className="demo-flash"><Check size={16} strokeWidth={1.5} /></span>
+                : <MousePointer2 size={16} strokeWidth={1.5} />}
+              <span>{demoClicks > 0 ? `Clicked ${demoClicks} ${demoClicks === 1 ? 'time' : 'times'}` : 'Tap thumb and index to press'}</span>
               <small>{controlOn ? 'Move the cursor here, then tap' : 'While mouse control is off, every tap presses this button'}</small>
             </button>
-            <div className="success-note"><Check size={16} /> Taps stay inside this app until you turn on mouse control</div>
+            <div className="success-note"><Check size={16} strokeWidth={1.5} /> Taps stay inside this window until you turn on mouse control</div>
           </div>
           <aside className="status-panel">
             <p className="panel-label">Gesture status</p>
-            <div className={`gesture-state ${gesture === 'Tap detected' ? 'detected' : ''}`}><span className="state-icon"><Hand size={22} /></span><div aria-live="polite"><strong>{gesture}</strong><small>{cameraOn ? 'Keep your hand in frame' : 'Start the camera to begin'}</small></div></div>
+            <div className={`gesture-state ${gesture === 'Tap detected' ? 'detected' : ''}`}>
+              <span className="state-icon"><Hand size={16} strokeWidth={1.5} /></span>
+              <div aria-live="polite">
+                <strong>{gesture}</strong>
+                <small>{cameraOn ? 'Keep your hand in frame' : 'Start the camera to begin'}</small>
+              </div>
+            </div>
             <div className="meter-row"><span>Pinch strength</span><strong>{strength}%</strong></div>
-            <div className="meter"><span style={{ width: `${strength}%` }} /></div>
-            <div className="settings-title"><Settings2 size={15} /> Sensitivity <strong>{sensitivity}%</strong></div>
+            <div className="meter"><span style={{ transform: `scaleX(${strength / 100})` }} /></div>
+            <div className="settings-title"><Settings2 size={16} strokeWidth={1.5} /> Sensitivity <strong>{sensitivity}%</strong></div>
             <input aria-label="Gesture sensitivity" type="range" min="20" max="80" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} />
-            {nativeError && <div className="error-message" role="alert"><AlertCircle size={16} /> {nativeError}</div>}
+            {nativeError && <div className="error-message" role="alert"><AlertCircle size={16} strokeWidth={1.5} /> {nativeError}</div>}
           </aside>
         </div>
       </section>
@@ -701,7 +721,7 @@ function App() {
         controlToggle={controlToggle}
       />
 
-      <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally on this computer.</span></footer>
+      <footer><span>HandTap is built for local, hands-free access</span><span>All camera processing stays on this computer</span></footer>
     </main>
   );
 }

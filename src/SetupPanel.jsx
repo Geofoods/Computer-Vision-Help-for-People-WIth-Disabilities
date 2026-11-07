@@ -13,7 +13,7 @@ export function SetupPanel({ cameraOn, isDesktop, reachCapturing, reachMessage, 
       </div>
       <div className="setup-grid">
         <div className="keybind-panel">
-          <h3><Move size={17} /> Your reach</h3>
+          <h3><Move size={16} strokeWidth={1.5} /> Your reach</h3>
           <p className="keybind-status">Move your hand around the space that feels comfortable, however small. That space then covers your whole screen.</p>
           <div className="setup-actions">
             <button type="button" className="record-button" disabled={!cameraOn || reachCapturing} onClick={onCalibrateReach}>
@@ -24,7 +24,7 @@ export function SetupPanel({ cameraOn, isDesktop, reachCapturing, reachMessage, 
           <p className="setup-message" aria-live="polite">{reachMessage}</p>
         </div>
         <div className="keybind-panel">
-          <h3><Rocket size={17} /> Hands-free start</h3>
+          <h3><Rocket size={16} strokeWidth={1.5} /> Hands-free start</h3>
           <label className="typing-sounds">
             <input type="checkbox" checked={autoStart} onChange={(event) => onChangeAutoStart(event.target.checked)} />
             Start the camera when HandTap opens
