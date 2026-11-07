@@ -61,6 +61,9 @@ export function SetupPanel({
               </DualLayerButton>
             )}
           </div>
+          <div className={`progress-track ${reachCapturing ? 'on' : ''}`} aria-hidden="true">
+            {reachCapturing && <i className="progress-run reach-run" />}
+          </div>
           <p className="setup-message" aria-live="polite">{reachMessage}</p>
         </HudFrame>
 

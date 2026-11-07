@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import {
   FILTER_PROFILES,
+  HOLD_MS,
   REACH_ZONE,
   computeReachZone,
   createDigitDetector,
@@ -88,6 +89,8 @@ const CLICK_COOLDOWN = 500;
 const SCROLL_COOLDOWN = 1200;
 const TYPED_DISPLAY_LENGTH = 24;
 const TEACH_COUNTDOWN = 1500;
+const MODE_NOTICE_TIME = 1600;
+// Heads move naturally while people talk and look around, so a tilt has to be held.
 const HEAD_TILT_HOLD = 400;
 const REACH_CAPTURE_TIME = 5000;
 // A timer rather than requestAnimationFrame, which stops when the window is hidden
@@ -114,6 +117,19 @@ function createWorker() {
       reject(new Error(event.message || 'The hand tracking worker failed to start.'));
     worker.postMessage({ type: 'init' });
   });
+}
+
+const prefersReducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Added straight to the DOM so a click never waits on a React render, and removes itself.
+function showClickRipple(view, cursor) {
+  if (!view || !cursor?.classList.contains('visible') || prefersReducedMotion()) return;
+  const ripple = document.createElement('span');
+  ripple.className = 'click-ripple';
+  ripple.style.left = cursor.style.left;
+  ripple.style.top = cursor.style.top;
+  ripple.addEventListener('animationend', () => ripple.remove());
+  view.append(ripple);
 }
 
 function cameraErrorMessage(error) {
@@ -203,6 +219,9 @@ function App() {
   const [soundsOn, setSoundsOn] = useState(() => loadSoundsOn(window.localStorage));
   const [armedDigit, setArmedDigit] = useState(null);
   const [typed, setTyped] = useState('');
+  const [typedCount, setTypedCount] = useState(0);
+  const [holding, setHolding] = useState(null);
+  const [modeNotice, setModeNotice] = useState(null);
   const [controlToggle, setControlToggle] = useState(() =>
     loadControlToggle(window.localStorage, typingToggle, bindings),
   );
@@ -329,6 +348,11 @@ function App() {
     if (wasTypingRef.current === typingOn) return;
     wasTypingRef.current = typingOn;
     if (soundsRef.current) (typingOn ? playTypingOn : playTypingOff)();
+    setModeNotice({
+      text: typingOn ? 'Number typing on' : 'Number typing off',
+      on: typingOn,
+      id: performance.now(),
+    });
     fireAura({
       kind: 'toggle',
       label: typingOn ? 'Number typing on' : 'Number typing paused',
@@ -348,12 +372,23 @@ function App() {
     if (!controlOn) {
       desktop?.syncOverlay?.({ visible: false });
     }
+    setModeNotice({
+      text: controlOn ? 'Mouse control on' : 'Mouse control off',
+      on: controlOn,
+      id: performance.now(),
+    });
     fireAura({
       kind: 'toggle',
       label: controlOn ? 'Mouse control active' : 'Mouse control paused',
       detail: controlOn ? 'Desktop cursor live' : 'In-window practice',
     });
   }, [controlOn, fireAura]);
+
+  useEffect(() => {
+    if (!modeNotice) return undefined;
+    const timer = setTimeout(() => setModeNotice(null), MODE_NOTICE_TIME);
+    return () => clearTimeout(timer);
+  }, [modeNotice]);
 
   const resetTracking = () => {
     pinchRef.current.reset();
@@ -364,6 +399,8 @@ function App() {
     setArmedDigit(null);
     setHandPoint(null);
     setDwellState({ progress: 0, label: '' });
+    setHolding(null);
+    cursorRef.current?.classList.remove('pressed');
     filterXRef.current.reset();
     filterYRef.current.reset();
     cursorRef.current?.classList.remove('visible');
@@ -411,6 +448,7 @@ function App() {
       lastClickRef.current = now;
       setNativeError('');
       setClicks((value) => value + 1);
+      showClickRipple(viewRef.current, cursorRef.current);
       fireAura({
         x: position?.x,
         y: position?.y,
@@ -516,6 +554,7 @@ function App() {
   const typeDigit = useCallback(
     async (digit) => {
       setTyped((value) => (value + digit).slice(-TYPED_DISPLAY_LENGTH));
+      setTypedCount((value) => value + 1);
       if (soundsRef.current) playDigitTyped();
       fireAura({
         x: lastPositionRef.current?.x,
@@ -716,6 +755,13 @@ function App() {
       ) {
         setControlOn((value) => !value);
       }
+      setHolding(
+        toggleHoldRef.current.isHolding()
+          ? 'typing'
+          : controlHoldRef.current.isHolding()
+            ? 'control'
+            : null,
+      );
 
       const poseBlocksClick =
         pose === 'fist' ||
@@ -778,6 +824,7 @@ function App() {
         cursorRef.current.style.left = `${smoothed.x * 100}%`;
         cursorRef.current.style.top = `${smoothed.y * 100}%`;
         cursorRef.current.classList.add('visible');
+        cursorRef.current.classList.toggle('pressed', pinching);
       }
       setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
       const nextGestureLabel = capturing
@@ -1152,7 +1199,10 @@ function App() {
                   </div>
                   <span className="live-label">{cameraOn ? 'Live' : 'Standby'}</span>
                 </div>
-                <div ref={viewRef} className="camera-view">
+                <div
+                  ref={viewRef}
+                  className={`camera-view ${typingOn ? 'mode-typing' : controlOn ? 'mode-control' : ''}`}
+                >
                   <video
                     ref={videoRef}
                     className={cameraOn ? 'visible' : ''}
@@ -1167,7 +1217,7 @@ function App() {
                   <canvas ref={canvasRef} />
                   {cameraOn && (
                     <div
-                      className="reach-zone"
+                      className={`reach-zone ${reachCapturing ? 'capturing' : ''}`}
                       aria-hidden="true"
                       style={{
                         left: `${reachZone.left * 100}%`,
@@ -1176,6 +1226,25 @@ function App() {
                         bottom: `${(1 - reachZone.bottom) * 100}%`,
                       }}
                     />
+                  )}
+                  {holding && (
+                    <div className="hold-indicator" aria-hidden="true">
+                      <span>
+                        {holding === 'typing'
+                          ? `Hold to turn ${typingOn ? 'off' : 'on'} number typing`
+                          : `Hold to turn ${controlOn ? 'off' : 'on'} mouse control`}
+                      </span>
+                      <i style={{ animationDuration: `${HOLD_MS}ms` }} />
+                    </div>
+                  )}
+                  {modeNotice && (
+                    <div
+                      key={modeNotice.id}
+                      className={`mode-notice ${modeNotice.on ? 'on' : ''}`}
+                      aria-hidden="true"
+                    >
+                      {modeNotice.text}
+                    </div>
                   )}
                   <div ref={cursorRef} className="fake-cursor" aria-hidden="true">
                     <MousePointer2 size={20} strokeWidth={1.6} />
@@ -1266,11 +1335,17 @@ function App() {
               </div>
               <div className="feedback-counts">
                 <div className="click-count">
-                  <MousePointer2 size={15} strokeWidth={1.6} /> <span>{clicks}</span>{' '}
+                  <MousePointer2 size={15} strokeWidth={1.6} />{' '}
+                  <span key={clicks} className={clicks ? 'count-bump' : ''}>
+                    {clicks}
+                  </span>{' '}
                   {clicks === 1 ? 'pinch' : 'pinches'}
                 </div>
                 <div className="click-count lick-count">
-                  <Hand size={15} strokeWidth={1.6} /> <span>{tongueLicks}</span>{' '}
+                  <Hand size={15} strokeWidth={1.6} />{' '}
+                  <span key={tongueLicks} className={tongueLicks ? 'count-bump' : ''}>
+                    {tongueLicks}
+                  </span>{' '}
                   {tongueLicks === 1 ? 'lick' : 'licks'}
                 </div>
               </div>
@@ -1385,6 +1460,7 @@ function App() {
             hotkey={typingHotkey}
             armedDigit={armedDigit}
             typed={typed}
+            typedCount={typedCount}
             onClear={() => setTyped('')}
             typingToggle={typingToggle}
             onChangeToggle={setTypingToggle}
