@@ -109,9 +109,14 @@ function createMouse(spawnProcess = spawn) {
       assertSupported();
       getHelper().stdin.write(`keys ${comboToKeyCodes(combo).join(',')}\n`);
     },
-    scrollDown() {
+    scrollBy(amount) {
       assertSupported();
-      getHelper().stdin.write(`scroll ${SCROLL_DOWN_AMOUNT}\n`);
+      const value = Number(amount);
+      if (!Number.isFinite(value) || value === 0 || Math.abs(value) > 6000) throw new Error('Invalid scroll amount.');
+      getHelper().stdin.write(`scroll ${Math.trunc(value)}\n`);
+    },
+    scrollDown() {
+      this.scrollBy(SCROLL_DOWN_AMOUNT);
     },
     // Starts the helper ahead of time so the first gesture isn't delayed.
     warmUp() {

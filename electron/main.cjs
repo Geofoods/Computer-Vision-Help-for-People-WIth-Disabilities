@@ -27,7 +27,7 @@ let hotkeyRegistered = false;
 let typingHotkeyRegistered = false;
 
 ipcMain.handle('handtap:click', (_event, position) => mouse.click(position));
-ipcMain.handle('handtap:scroll', () => mouse.scrollDown());
+ipcMain.handle('handtap:scroll', (_event, amount) => amount === undefined ? mouse.scrollDown() : mouse.scrollBy(amount));
 ipcMain.handle('handtap:press-keys', (_event, combo) => mouse.pressKeys(combo));
 ipcMain.on('handtap:move', (_event, position) => {
   try {

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Power } from 'lucide-react';
-import { HOLD_MS, REACH_ZONE, computeReachZone, createDigitDetector, createFaceGestureDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headPitch, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { HOLD_MS, REACH_ZONE, computeReachZone, createDigitDetector, createFaceGestureDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headPitch, headPitchStrength, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
 import { SAMPLES_PER_TEACH, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
@@ -87,6 +87,7 @@ function App() {
   const tongueRef = useRef(false);
   const headTiltRef = useRef(null);
   const headTiltHoldRef = useRef(createHoldDetector({ holdMs: HEAD_TILT_HOLD }));
+  const headScrollRef = useRef({ id: null, last: 0 });
   const faceGestureRef = useRef(createFaceGestureDetector());
   const faceLandmarksRef = useRef(null);
   const filterXRef = useRef(createOneEuroFilter());
@@ -218,6 +219,7 @@ function App() {
     tongueRef.current = false;
     headTiltRef.current = null;
     headTiltHoldRef.current.reset();
+    headScrollRef.current = { id: null, last: 0 };
     faceGestureRef.current.reset();
     faceLandmarksRef.current = null;
     teachRef.current = null;
@@ -245,7 +247,7 @@ function App() {
     }
   }, []);
 
-  const triggerMovement = useCallback(async (id, position) => {
+  const triggerMovement = useCallback(async (id, position, intensity = 1) => {
     // Learning from the hand shouldn't press anything, including from the face.
     if (teachRef.current || reachCaptureRef.current) return;
     // Number typing is made of poses, so only a swipe can mean something else while it's on.
@@ -272,8 +274,12 @@ function App() {
     if (!desktop || !controlRef.current) return;
     setNativeError('');
     try {
-      if (combo === 'Scroll Down') {
-        await desktop.scrollDown();
+      if (combo === 'Scroll Down' || combo === 'Scroll Up') {
+        const direction = combo === 'Scroll Down' ? -1 : 1;
+        const amount = direction * Math.round(120 * (1 + 4 * Math.min(1, Math.max(0, intensity))));
+        if (intensity < 1 || id === 'headTiltUp' || id === 'headTiltDown') await desktop.scrollBy(amount);
+        else if (combo === 'Scroll Down') await desktop.scrollDown();
+        else await desktop.scrollBy(amount);
       } else {
         await desktop.pressKeys(combo);
       }
@@ -298,12 +304,18 @@ function App() {
   const handleFace = useCallback(({ landmarks, blendshapes }) => {
     const licking = isLicking(blendshapes);
     faceLandmarksRef.current = landmarks;
-    const tilt = headTilt(landmarks) ?? headPitch(landmarks);
+    const pitch = headPitchStrength(landmarks);
+    const tilt = headTilt(landmarks) ?? pitch?.id ?? null;
     if (tilt !== headTiltRef.current) {
       headTiltRef.current = tilt;
       headTiltHoldRef.current.reset();
     }
-    if (headTiltHoldRef.current.update(Boolean(tilt), performance.now())) triggerMovement(tilt);
+    const now = performance.now();
+    if (headTiltHoldRef.current.update(Boolean(tilt), now)) triggerMovement(tilt, undefined, pitch?.intensity ?? 1);
+    if (pitch && headTiltHoldRef.current.hasFired() && now - headScrollRef.current.last >= 120) {
+      headScrollRef.current = { id: pitch.id, last: now };
+      triggerMovement(pitch.id, undefined, pitch.intensity);
+    }
     for (const gesture of faceGestureRef.current.update(blendshapes)) triggerMovement(gesture);
     setTongueActive(licking);
     if (licking && !tongueRef.current) {

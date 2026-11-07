@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DIGIT_CHART, REACH_ZONE, computeReachZone, createDigitDetector, createFaceGestureDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, faceGestures, headPitch, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { DIGIT_CHART, REACH_ZONE, computeReachZone, createDigitDetector, createFaceGestureDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, faceGestures, headPitch, headPitchStrength, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -94,6 +94,9 @@ test('head pitch recognizes looking up and down', () => {
   assert.equal(headPitch(landmarks), 'headTiltUp');
   landmarks[1] = { x: 0.5, y: 0.5 };
   assert.equal(headPitch(landmarks), 'headTiltDown');
+  const shallow = headPitchStrength(landmarks, 0.2).intensity;
+  landmarks[1] = { x: 0.5, y: 0.7 };
+  assert.ok(headPitchStrength(landmarks, 0.2).intensity > shallow);
 });
 
 // A hand raising exactly the named fingers: T, I, M, R, P.
