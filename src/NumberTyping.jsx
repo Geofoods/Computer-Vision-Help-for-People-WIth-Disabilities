@@ -80,7 +80,7 @@ export function NumberTyping({ typingOn, onToggle, cameraOn, controlOn, isDeskto
             {typed && <button type="button" className="clear-typed" onClick={onClear}>Clear</button>}
           </div>
         </div>
-        <p className="typing-how">Hold a pattern until it shows above, then close your fingers into a fist to type it.</p>
+        <p className="typing-how">Hold a pattern until it shows above, then close your fingers into a fist to type it. With two hands visible, your other hand can type while the cursor hand keeps moving.</p>
         <p className="teach-status" aria-live="polite">{teachText(teaching, labelOf)}</p>
         <div className={`progress-track ${teaching ? 'on' : ''}`} aria-hidden="true">
           {teaching?.status === 'ready' && <i className="progress-run countdown" />}

@@ -203,6 +203,54 @@ export function headTilt(landmarks, threshold = 0.2) {
   return null;
 }
 
+/** Returns the vertical head direction, normalized by eye distance. */
+export function headPitch(landmarks, threshold = 0.35) {
+  const leftEye = landmarks?.[33];
+  const rightEye = landmarks?.[263];
+  const nose = landmarks?.[1];
+  if (!leftEye || !rightEye || !nose) return null;
+  const eyeDistance = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
+  if (!eyeDistance) return null;
+  const offset = (nose.y - (leftEye.y + rightEye.y) / 2) / eyeDistance;
+  if (offset < -threshold) return 'headTiltUp';
+  if (offset > threshold) return 'headTiltDown';
+  return null;
+}
+
+function blendshapeScore(blendshapes, name) {
+  return blendshapes?.find(({ categoryName }) => categoryName === name)?.score ?? 0;
+}
+
+export function faceGestures(blendshapes) {
+  const leftBlink = blendshapeScore(blendshapes, 'eyeBlinkLeft');
+  const rightBlink = blendshapeScore(blendshapes, 'eyeBlinkRight');
+  return {
+    blink: leftBlink > 0.55 && rightBlink > 0.55,
+    winkLeft: leftBlink > 0.6 && rightBlink < 0.35,
+    winkRight: rightBlink > 0.6 && leftBlink < 0.35,
+    kiss: blendshapeScore(blendshapes, 'mouthPucker') > 0.55,
+    cheekPuff: blendshapeScore(blendshapes, 'cheekPuff') > 0.45,
+    mouthOpen: blendshapeScore(blendshapes, 'jawOpen') > 0.6,
+  };
+}
+
+export function createFaceGestureDetector() {
+  const previous = {};
+  return {
+    update(blendshapes) {
+      const active = faceGestures(blendshapes);
+      const fired = Object.entries(active)
+        .filter(([id, isActive]) => isActive && !previous[id])
+        .map(([id]) => id);
+      Object.assign(previous, active);
+      return fired;
+    },
+    reset() {
+      for (const id of Object.keys(previous)) previous[id] = false;
+    },
+  };
+}
+
 /**
  * Pinch state machine. The release threshold sits above the press threshold so a
  * hand hovering near the boundary can't fire repeated clicks, and a press must last

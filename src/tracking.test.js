@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DIGIT_CHART, createDigitDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { DIGIT_CHART, REACH_ZONE, computeReachZone, createDigitDetector, createFaceGestureDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, faceGestures, headPitch, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -70,6 +70,30 @@ test('isLicking needs a tongue or the matching mouth shape', () => {
   assert.equal(isLicking(shapes({ jawOpen: 0.6, mouthPucker: 0.2 })), true);
   assert.equal(isLicking(shapes({ jawOpen: 0.6 })), false);
   assert.equal(isLicking(shapes({ tongueOut: 0.1, mouthPucker: 0.5 })), false);
+});
+
+test('face gestures recognize expressions and fire once per expression', () => {
+  const shapes = (scores) => Object.entries(scores).map(([categoryName, score]) => ({ categoryName, score }));
+  assert.equal(faceGestures(shapes({ eyeBlinkLeft: 0.8, eyeBlinkRight: 0.8 })).blink, true);
+  assert.equal(faceGestures(shapes({ eyeBlinkLeft: 0.8, eyeBlinkRight: 0.1 })).winkLeft, true);
+  assert.equal(faceGestures(shapes({ mouthPucker: 0.8 })).kiss, true);
+  assert.equal(faceGestures(shapes({ cheekPuff: 0.8 })).cheekPuff, true);
+  assert.equal(faceGestures(shapes({ jawOpen: 0.8 })).mouthOpen, true);
+  const detector = createFaceGestureDetector();
+  assert.deepEqual(detector.update(shapes({ mouthPucker: 0.8 })), ['kiss']);
+  assert.deepEqual(detector.update(shapes({ mouthPucker: 0.8 })), []);
+  assert.deepEqual(detector.update([]), []);
+  assert.deepEqual(detector.update(shapes({ mouthPucker: 0.8 })), ['kiss']);
+});
+
+test('head pitch recognizes looking up and down', () => {
+  const landmarks = Array.from({ length: 264 }, () => ({ x: 0.5, y: 0.5 }));
+  landmarks[33] = { x: 0.45, y: 0.45 };
+  landmarks[263] = { x: 0.55, y: 0.45 };
+  landmarks[1] = { x: 0.5, y: 0.4 };
+  assert.equal(headPitch(landmarks), 'headTiltUp');
+  landmarks[1] = { x: 0.5, y: 0.5 };
+  assert.equal(headPitch(landmarks), 'headTiltDown');
 });
 
 // A hand raising exactly the named fingers: T, I, M, R, P.
@@ -183,6 +207,21 @@ test('toScreen maps the reach zone onto the full screen and clamps outside it', 
   assert.deepEqual(toScreen({ x: 0.2, y: 0.2 }), { x: 0, y: 0 });
   assert.deepEqual(toScreen({ x: 0.8, y: 0.8 }), { x: 1, y: 1 });
   assert.deepEqual(toScreen({ x: 0, y: 1 }), { x: 0, y: 1 });
+});
+
+test('computeReachZone adds an inset while preserving a comfortable range', () => {
+  assert.deepEqual(computeReachZone([
+    { x: 0.2, y: 0.25 },
+    { x: 0.8, y: 0.75 },
+  ]), { left: 0.26, right: 0.74, top: 0.3, bottom: 0.7 });
+});
+
+test('computeReachZone rejects a movement that is too small', () => {
+  assert.equal(computeReachZone([
+    { x: 0.45, y: 0.45 },
+    { x: 0.5, y: 0.5 },
+  ]), null);
+  assert.deepEqual(REACH_ZONE, { left: 0.2, right: 0.8, top: 0.2, bottom: 0.8 });
   assert.ok(Math.abs(toScreen({ x: 0.5, y: 0.5 }).x - 0.5) < 1e-9);
 });
 

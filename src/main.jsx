@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Power } from 'lucide-react';
-import { HOLD_MS, REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { HOLD_MS, REACH_ZONE, computeReachZone, createDigitDetector, createFaceGestureDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headPitch, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
 import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
 import { SAMPLES_PER_TEACH, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
@@ -87,6 +87,7 @@ function App() {
   const tongueRef = useRef(false);
   const headTiltRef = useRef(null);
   const headTiltHoldRef = useRef(createHoldDetector({ holdMs: HEAD_TILT_HOLD }));
+  const faceGestureRef = useRef(createFaceGestureDetector());
   const faceLandmarksRef = useRef(null);
   const filterXRef = useRef(createOneEuroFilter());
   const filterYRef = useRef(createOneEuroFilter());
@@ -122,6 +123,7 @@ function App() {
   const [reachCapturing, setReachCapturing] = useState(false);
   const [reachMessage, setReachMessage] = useState('');
   const [gestureSamples, setGestureSamples] = useState(() => loadGestureSamples(window.localStorage));
+  const [handsDetected, setHandsDetected] = useState(0);
   const [teaching, setTeaching] = useState(null);
   const gestureModel = useMemo(() => createGestureModel(gestureSamples), [gestureSamples]);
 
@@ -208,6 +210,7 @@ function App() {
     lastVideoTimeRef.current = 0;
     busyRef.current = false;
     setCameraOn(false);
+    setHandsDetected(0);
     setControlOn(false);
     setTypingOn(false);
     setGesture('Camera paused');
@@ -215,6 +218,7 @@ function App() {
     tongueRef.current = false;
     headTiltRef.current = null;
     headTiltHoldRef.current.reset();
+    faceGestureRef.current.reset();
     faceLandmarksRef.current = null;
     teachRef.current = null;
     setTeaching(null);
@@ -294,12 +298,13 @@ function App() {
   const handleFace = useCallback(({ landmarks, blendshapes }) => {
     const licking = isLicking(blendshapes);
     faceLandmarksRef.current = landmarks;
-    const tilt = headTilt(landmarks);
+    const tilt = headTilt(landmarks) ?? headPitch(landmarks);
     if (tilt !== headTiltRef.current) {
       headTiltRef.current = tilt;
       headTiltHoldRef.current.reset();
     }
     if (headTiltHoldRef.current.update(Boolean(tilt), performance.now())) triggerMovement(tilt);
+    for (const gesture of faceGestureRef.current.update(blendshapes)) triggerMovement(gesture);
     setTongueActive(licking);
     if (licking && !tongueRef.current) {
       setTongueLicks((value) => value + 1);
@@ -339,7 +344,7 @@ function App() {
     context.stroke();
   };
 
-  const drawLandmarks = (landmarks, pinching) => {
+  const drawLandmarks = (landmarks, pinching, otherLandmarks = null) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
@@ -361,9 +366,22 @@ function App() {
     context.moveTo(thumb.x * canvas.width, thumb.y * canvas.height);
     context.lineTo(index.x * canvas.width, index.y * canvas.height);
     context.stroke();
+    if (otherLandmarks) {
+      context.fillStyle = '#7dd3fc';
+      otherLandmarks.forEach(({ x, y }) => {
+        context.beginPath();
+        context.arc(x * canvas.width, y * canvas.height, 4, 0, Math.PI * 2);
+        context.fill();
+      });
+      context.strokeStyle = '#7dd3fc';
+      context.beginPath();
+      context.moveTo(otherLandmarks[4].x * canvas.width, otherLandmarks[4].y * canvas.height);
+      context.lineTo(otherLandmarks[8].x * canvas.width, otherLandmarks[8].y * canvas.height);
+      context.stroke();
+    }
   };
 
-  const handleLandmarks = useCallback((landmarks, now) => {
+  const handleLandmarks = useCallback((landmarks, now, otherLandmarks = null) => {
     const video = videoRef.current;
     if (!landmarks) {
       setGesture('Show one hand to camera');
@@ -391,7 +409,8 @@ function App() {
     }
     const reach = reachCaptureRef.current;
     if (reach) {
-      reach.points.push(smoothed);
+      // Capture the raw hand position so smoothing cannot shrink a person's usable range.
+      reach.points.push(point);
       if (now >= reach.until) {
         const zone = computeReachZone(reach.points);
         reachCaptureRef.current = null;
@@ -416,7 +435,9 @@ function App() {
     const poseBlocksClick = pose === 'fist' || poseIsToggle || poseIsControlToggle || Boolean(pose && bindingsRef.current[pose]);
     const { pinching, justPinched } = pinchRef.current.update(typing || capturing || poseBlocksClick ? Infinity : ratio, sensitivityRef.current);
     if (typing && !poseIsToggle && !capturing) {
-      const { digit, armed } = digitRef.current.update(landmarks, aspect, gestureModelRef.current);
+      // When available, type from the second hand so the cursor hand remains independent.
+      const digitLandmarks = otherLandmarks ?? landmarks;
+      const { digit, armed } = digitRef.current.update(digitLandmarks, aspect, gestureModelRef.current);
       setArmedDigit(armed);
       if (digit !== null) typeDigit(digit);
     } else {
@@ -426,7 +447,7 @@ function App() {
     const screenPosition = toScreen(smoothed, reachZoneRef.current);
     lastPositionRef.current = screenPosition;
 
-    drawLandmarks(landmarks, pinching);
+    drawLandmarks(landmarks, pinching, otherLandmarks);
     drawMouth();
     if (cursorRef.current) {
       cursorRef.current.style.left = `${smoothed.x * 100}%`;
@@ -437,7 +458,9 @@ function App() {
     setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
     setGesture(capturing ? 'Learning your hand' : typing ? 'Typing numbers' : pinching ? 'Tap detected' : 'Hand ready');
 
-    if (desktop && controlRef.current && !typing && !capturing) desktop.moveTo(screenPosition);
+    // Number typing must not freeze the cursor hand. With one visible hand it also
+    // remains the typing hand, preserving the original single-hand workflow.
+    if (desktop && controlRef.current && !capturing) desktop.moveTo(screenPosition);
     if (justPinched) triggerMovement('indexTap', screenPosition);
     if (movement && !capturing) triggerMovement(movement, screenPosition);
   }, [triggerClick, triggerMovement, typeDigit]);
@@ -496,8 +519,10 @@ function App() {
           if (data.type !== 'result') return;
           busyRef.current = false;
           if (!streamRef.current) return;
+          setHandsDetected(data.hands?.length ?? (data.landmarks ? 1 : 0));
           if (data.face) onFaceRef.current(data.face);
-          onLandmarksRef.current(data.landmarks, performance.now());
+          const otherHand = data.hands?.[1]?.landmarks ?? null;
+          onLandmarksRef.current(data.landmarks, performance.now(), otherHand);
         };
         workerRef.current = worker;
       }
@@ -641,7 +666,7 @@ function App() {
             {modeNotice && <div key={modeNotice.id} className={`mode-notice ${modeNotice.on ? 'on' : ''}`} aria-hidden="true">{modeNotice.text}</div>}
             <div ref={cursorRef} className="fake-cursor" aria-hidden="true"><MousePointer2 size={20} strokeWidth={1.5} /></div>
             {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={16} strokeWidth={1.5} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
-            {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
+            {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking {handsDetected === 2 ? '2 hands' : 'hand'}{typingOn && handsDetected === 2 ? ' · typing hand ready' : ''}</div>}
           </div>
           {error && <div className="error-message" role="alert"><AlertCircle size={16} strokeWidth={1.5} /> {error}</div>}
           <div className="camera-meta">
