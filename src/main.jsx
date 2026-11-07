@@ -223,6 +223,7 @@ function App() {
   const [sensitivity, setSensitivity] = useState(() => loadSensitivity(window.localStorage));
   const [nativeError, setNativeError] = useState('');
   const [controlOn, setControlOn] = useState(false);
+  const controlDesiredRef = useRef(false);
   const [eyeTracking, setEyeTracking] = useState(() => loadEyeTracking(window.localStorage));
   const [dragging, setDragging] = useState(false);
   const [hotkey, setHotkey] = useState(null);
@@ -318,7 +319,15 @@ function App() {
   }, []);
 
   const enableMouseControl = useCallback(() => {
-    if (streamRef.current && desktop) setControlOn(true);
+    if (streamRef.current && desktop) {
+      controlDesiredRef.current = true;
+      setControlOn(true);
+    }
+  }, []);
+
+  const disableMouseControl = useCallback(() => {
+    controlDesiredRef.current = false;
+    setControlOn(false);
   }, []);
 
   useEffect(() => {
@@ -394,6 +403,10 @@ function App() {
 
   const wasControlRef = useRef(controlOn);
   useEffect(() => {
+    if (!controlOn && controlDesiredRef.current && streamRef.current && desktop) {
+      setControlOn(true);
+      return;
+    }
     if (wasControlRef.current === controlOn) return;
     wasControlRef.current = controlOn;
     if (soundsRef.current) (controlOn ? playControlOn : playControlOff)();
@@ -411,10 +424,14 @@ function App() {
     });
     fireAura({
       kind: 'toggle',
-      label: controlOn ? 'Mouse control active' : 'Mouse control paused',
-      detail: controlOn ? 'Desktop cursor live' : 'In-window practice',
+      label: controlOn ? 'Mouse control active' : 'Mouse control off',
+      detail: controlOn ? 'Desktop cursor live' : 'In-window practice mode',
     });
   }, [controlOn, fireAura]);
+
+  useEffect(() => {
+    if (cameraOn && controlDesiredRef.current && !controlOn) setControlOn(true);
+  }, [cameraOn, controlOn]);
 
   useEffect(() => {
     if (!modeNotice) return undefined;
@@ -477,7 +494,6 @@ function App() {
     desktop?.syncOverlay?.({ visible: false });
     setCameraOn(false);
     setHandsDetected(0);
-    setControlOn(false);
     setTypingOn(false);
     setLiveFps(0);
     setInferenceMs(0);
@@ -915,7 +931,7 @@ function App() {
       }
       if (ctrlProg > activeDwell) {
         activeDwell = ctrlProg;
-        activeDwellLabel = controlRef.current ? 'Pause mouse' : 'Mouse control';
+        activeDwellLabel = controlRef.current ? 'Mouse control on' : 'Engage mouse control';
       }
       if (tiltProg > activeDwell) {
         activeDwell = tiltProg;
@@ -1458,7 +1474,7 @@ function App() {
                       className={`control-button ${controlOn ? 'active' : ''}`}
                       aria-pressed={controlOn}
                       disabled={!cameraOn}
-                      onClick={() => setControlOn((value) => !value)}
+                      onClick={controlOn ? disableMouseControl : enableMouseControl}
                       hoverText={controlOn ? 'Pause mouse control' : 'Engage mouse control'}
                     >
                       <Power size={15} strokeWidth={1.6} />{' '}

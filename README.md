@@ -91,7 +91,7 @@ Some decisions worth knowing about:
 
 ## Getting started
 
-You'll need [Node.js](https://nodejs.org) 20 or newer and a webcam. Controlling the real mouse and keyboard currently needs **Windows**; on other systems, or in a browser, you can still try the gestures inside the app.
+You'll need [Node.js](https://nodejs.org) 20 or newer and a webcam. The desktop app supports native mouse and keyboard control on **Windows and macOS**. On macOS, enable HandTap in **System Settings → Privacy & Security → Accessibility**. Development builds also need Apple's Xcode Command Line Tools so the native Quartz helper can be compiled on first launch.
 
 ```bash
 npm ci
@@ -116,7 +116,7 @@ If you see `Electron failed to install correctly`, delete `node_modules/electron
 ## Current limits
 
 - **Not yet tested with disabled users.** This is the most important next step, and their feedback should shape what comes after it.
-- Native mouse and keyboard control is Windows-only for now.
+- Native mouse and keyboard control works on Windows and macOS. macOS requires Accessibility permission and Xcode Command Line Tools.
 - Tracking needs reasonable light, and follows one hand at a time.
 - Tongue detection is less reliable than hand tracking. Like every movement, it can be turned off in Keybinds.
 - Typing covers numbers so far, not letters.
@@ -127,7 +127,7 @@ If you see `Electron failed to install correctly`, delete `node_modules/electron
 - Face-only control for people who can't use their hands
 - Teachable gestures for any action, not just numbers
 - Letters, using an on-screen keyboard or taught shapes
-- macOS and Linux support
+- Linux support
 - An always-visible status overlay
 
 ## Credits
