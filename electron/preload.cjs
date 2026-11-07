@@ -5,4 +5,5 @@ contextBridge.exposeInMainWorld('handtapDesktop', {
   moveAt: (position) => ipcRenderer.invoke('handtap:move', position),
   clickAt: (position) => ipcRenderer.invoke('handtap:click', position),
   scrollDown: () => ipcRenderer.invoke('handtap:scroll'),
+  pressKeys: (combo) => ipcRenderer.invoke('handtap:press-keys', combo),
 });

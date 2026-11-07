@@ -10,6 +10,7 @@
     "desktop:dev": "concurrently -k \"vite --host 127.0.0.1 --port 5174\" \"wait-on http://127.0.0.1:5174 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5174 electron .\"",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "node --test src/tracking.test.js src/keybinds.test.js",
     "desktop": "electron .",
     "dist": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder"
   },
