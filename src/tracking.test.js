@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DIGIT_CHART, createDigitDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { DIGIT_CHART, createDigitDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -129,6 +129,25 @@ test('reset forgets the held digit', () => {
   typeWith(detector, ['IM', 8]);
   detector.reset();
   assert.deepEqual(typeWith(detector, ['', 3]), []);
+});
+
+test('a hold fires once after its time, and again only after letting go', () => {
+  const hold = createHoldDetector({ holdMs: 500 });
+  assert.equal(hold.update(true, 0), false);
+  assert.equal(hold.update(true, 499), false);
+  assert.equal(hold.update(true, 500), true);
+  assert.equal(hold.update(true, 2000), false);
+  assert.equal(hold.update(false, 2100), false);
+  assert.equal(hold.update(true, 2200), false);
+  assert.equal(hold.update(true, 2700), true);
+});
+
+test('letting go early restarts a hold', () => {
+  const hold = createHoldDetector({ holdMs: 500 });
+  hold.update(true, 0);
+  hold.update(false, 400);
+  assert.equal(hold.update(true, 600), false);
+  assert.equal(hold.update(true, 1000), false);
 });
 
 test('cursorPoint is mirrored', () => {

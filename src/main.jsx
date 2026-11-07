@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
-import { REACH_ZONE, createDigitDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
-import { TOGGLE_TYPING, loadBindings, saveBindings } from './keybinds.js';
+import { REACH_ZONE, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
+import { playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
 import { KeybindSection } from './KeybindSection.jsx';
 import { NumberTyping } from './NumberTyping.jsx';
 import './styles.css';
@@ -55,6 +56,7 @@ function App() {
   const pinchRef = useRef(createPinchDetector());
   const movementRef = useRef(createMovementDetector());
   const digitRef = useRef(createDigitDetector());
+  const toggleHoldRef = useRef(createHoldDetector());
   const lastScrollRef = useRef(0);
   const tongueRef = useRef(false);
   const faceLandmarksRef = useRef(null);
@@ -79,6 +81,8 @@ function App() {
   const [lastMovement, setLastMovement] = useState(null);
   const [typingOn, setTypingOn] = useState(false);
   const [typingHotkey, setTypingHotkey] = useState(null);
+  const [typingToggle, setTypingToggle] = useState(() => loadTypingToggle(window.localStorage));
+  const [soundsOn, setSoundsOn] = useState(() => loadSoundsOn(window.localStorage));
   const [armedDigit, setArmedDigit] = useState(null);
   const [typed, setTyped] = useState('');
 
@@ -90,6 +94,10 @@ function App() {
   controlRef.current = controlOn;
   const typingRef = useRef(typingOn);
   typingRef.current = typingOn;
+  const typingToggleRef = useRef(typingToggle);
+  typingToggleRef.current = typingToggle;
+  const soundsRef = useRef(soundsOn);
+  soundsRef.current = soundsOn;
   const bindingsRef = useRef(bindings);
   bindingsRef.current = bindings;
 
@@ -103,11 +111,21 @@ function App() {
   }, []);
 
   useEffect(() => saveBindings(window.localStorage, bindings), [bindings]);
+  useEffect(() => saveTypingPreferences(window.localStorage, typingToggle, soundsOn), [typingToggle, soundsOn]);
+
+  // Covers every way of toggling, and is the only sign of it from inside another app.
+  const wasTypingRef = useRef(typingOn);
+  useEffect(() => {
+    if (wasTypingRef.current === typingOn) return;
+    wasTypingRef.current = typingOn;
+    if (soundsRef.current) (typingOn ? playTypingOn : playTypingOff)();
+  }, [typingOn]);
 
   const resetTracking = () => {
     pinchRef.current.reset();
     movementRef.current.reset();
     digitRef.current.reset();
+    toggleHoldRef.current.reset();
     setArmedDigit(null);
     filterXRef.current.reset();
     filterYRef.current.reset();
@@ -154,11 +172,12 @@ function App() {
     // Number typing is made of poses, so only a swipe can mean something else while it's on.
     if (typingRef.current && !id.startsWith('swipe')) return;
     setLastMovement({ id });
-    const combo = bindingsRef.current[id];
-    if (combo === TOGGLE_TYPING) {
-      setTypingOn((value) => !value);
+    // A tap used as the toggle is handled as a hold in handleLandmarks instead.
+    if (id === typingToggleRef.current) {
+      if (id.startsWith('swipe')) setTypingOn((value) => !value);
       return;
     }
+    const combo = bindingsRef.current[id];
     if (typingRef.current || !combo || !desktop || !controlRef.current) return;
     setNativeError('');
     try {
@@ -170,6 +189,7 @@ function App() {
 
   const typeDigit = useCallback(async (digit) => {
     setTyped((value) => (value + digit).slice(-TYPED_DISPLAY_LENGTH));
+    if (soundsRef.current) playDigitTyped();
     if (!desktop || !controlRef.current) return;
     setNativeError('');
     try {
@@ -263,10 +283,12 @@ function App() {
     const { movement, pose } = movementRef.current.update(landmarks, { aspect, now, sensitivity: sensitivityRef.current });
     // Making a bound pose can bring the index near the thumb, which shouldn't also click.
     // Unbound poses leave clicking exactly as it is for people not using keybinds.
-    const poseIsBound = Boolean(pose && bindingsRef.current[pose]);
+    const poseIsToggle = Boolean(pose) && pose === typingToggleRef.current;
+    const poseIsBound = poseIsToggle || Boolean(pose && bindingsRef.current[pose]);
     const typing = typingRef.current;
+    if (toggleHoldRef.current.update(poseIsToggle, now)) setTypingOn((value) => !value);
     const { pinching, justPinched } = pinchRef.current.update(typing || poseIsBound ? Infinity : ratio, sensitivityRef.current);
-    if (typing) {
+    if (typing && !poseIsToggle) {
       const { digit, armed } = digitRef.current.update(landmarks, aspect);
       setArmedDigit(armed);
       if (digit !== null) typeDigit(digit);
@@ -415,7 +437,7 @@ function App() {
             <li>If taps are missed, raise the sensitivity. If clicks fire by accident, lower it.</li>
             <li>To get the regular mouse back, lower your hand out of view{hotkey ? ` or press ${hotkey}` : ''}.</li>
             <li>While mouse control is on, sticking out your tongue scrolls down the window under the cursor.</li>
-            <li>To type a number, hold up its fingers until it shows as ready, then close your hand. The chart under Number typing shows each pattern.</li>
+            <li>To type a number, turn on number typing, hold up its fingers until it shows as ready, then close your hand. The chart under Number typing shows each pattern, and you can choose the movement that turns it on and off.</li>
             <li>Keybinds press a keyboard shortcut when you make a movement. A fast cursor move can count as a swipe, so only give swipes a shortcut if you want them.</li>
           </ul>
         </section>
@@ -525,6 +547,10 @@ function App() {
         armedDigit={armedDigit}
         typed={typed}
         onClear={() => setTyped('')}
+        typingToggle={typingToggle}
+        onChangeToggle={setTypingToggle}
+        soundsOn={soundsOn}
+        onChangeSounds={setSoundsOn}
       />
 
       <KeybindSection
@@ -533,6 +559,7 @@ function App() {
         lastMovement={lastMovement}
         controlOn={controlOn}
         isDesktop={Boolean(desktop)}
+        typingToggle={typingToggle}
       />
 
       <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally on this computer.</span></footer>
