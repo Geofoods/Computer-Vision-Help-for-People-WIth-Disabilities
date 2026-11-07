@@ -242,6 +242,63 @@ export function faceGestures(blendshapes) {
   };
 }
 
+const eyeCenter = (landmarks, indices) => {
+  const points = indices.map((index) => landmarks?.[index]).filter(Boolean);
+  if (!points.length) return null;
+  const sum = points.reduce((total, point) => ({ x: total.x + point.x, y: total.y + point.y }), { x: 0, y: 0 });
+  return { x: sum.x / points.length, y: sum.y / points.length };
+};
+
+/** Maps iris position inside each eye to a mirrored, normalized gaze point. */
+export function eyeGazePoint(landmarks) {
+  const leftIris = eyeCenter(landmarks, [468, 469, 470, 471, 472]);
+  const rightIris = eyeCenter(landmarks, [473, 474, 475, 476, 477]);
+  const leftOuter = landmarks?.[33];
+  const leftInner = landmarks?.[133];
+  const rightInner = landmarks?.[362];
+  const rightOuter = landmarks?.[263];
+  if (!leftIris || !rightIris || !leftOuter || !leftInner || !rightInner || !rightOuter) return null;
+  const average = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const iris = average(leftIris, rightIris);
+  const leftWidth = Math.abs(leftInner.x - leftOuter.x);
+  const rightWidth = Math.abs(rightOuter.x - rightInner.x);
+  const width = (leftWidth + rightWidth) / 2;
+  if (!width) return null;
+  const eyeLine = average(average(leftOuter, leftInner), average(rightInner, rightOuter));
+  return {
+    x: 1 - (iris.x - eyeLine.x) / (width * 0.72) * 0.5 - 0.5,
+    y: (iris.y - eyeLine.y) / (width * 0.72) * 0.5 + 0.5,
+  };
+}
+
+export function createDoubleBlinkDetector({ windowMs = 900, cooldownMs = 700 } = {}) {
+  let wasBlinking = false;
+  let firstBlinkAt = 0;
+  let cooldownUntil = 0;
+  return {
+    update(blinking, now) {
+      let fired = false;
+      if (blinking && !wasBlinking && now >= cooldownUntil) {
+        if (firstBlinkAt && now - firstBlinkAt <= windowMs) {
+          fired = true;
+          firstBlinkAt = 0;
+          cooldownUntil = now + cooldownMs;
+        } else {
+          firstBlinkAt = now;
+        }
+      }
+      if (firstBlinkAt && now - firstBlinkAt > windowMs) firstBlinkAt = 0;
+      wasBlinking = blinking;
+      return fired;
+    },
+    reset() {
+      wasBlinking = false;
+      firstBlinkAt = 0;
+      cooldownUntil = 0;
+    },
+  };
+}
+
 export function createFaceGestureDetector() {
   const previous = {};
   return {

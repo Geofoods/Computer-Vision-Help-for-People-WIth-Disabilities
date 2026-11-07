@@ -18,12 +18,15 @@ import {
   REACH_ZONE,
   computeReachZone,
   createDigitDetector,
+  createDoubleBlinkDetector,
   createFaceGestureDetector,
   createHoldDetector,
   createMovementDetector,
   createOneEuroFilter,
   createPinchDetector,
   cursorPoint,
+  eyeGazePoint,
+  faceGestures,
   headPitch,
   headPitchStrength,
   headTilt,
@@ -56,6 +59,7 @@ import {
 import {
   loadAutoStart,
   loadControlToggle,
+  loadEyeTracking,
   loadFilterProfile,
   loadGestureSamples,
   loadOverlayEnabled,
@@ -65,6 +69,7 @@ import {
   loadTheme,
   saveAutoStart,
   saveControlToggle,
+  saveEyeTracking,
   saveFilterProfile,
   saveGestureSamples,
   saveOverlayEnabled,
@@ -101,6 +106,7 @@ const REACH_CAPTURE_TIME = 5000;
 // and would freeze the mouse the moment another app covers this one.
 const FRAME_INTERVAL = 33;
 const OVERLAY_SYNC_INTERVAL = 85;
+const UI_STATUS_INTERVAL = 66;
 const desktop = window.handtapDesktop;
 
 const HERO_STEPS = [
@@ -172,19 +178,25 @@ function App() {
   const reachCaptureRef = useRef(null);
   const lastScrollRef = useRef(0);
   const lastPositionRef = useRef(null);
+  const lastNativePositionRef = useRef(null);
   const pointerNormRef = useRef({ x: 0.5, y: 0.36 });
   const tongueRef = useRef(false);
   const headTiltRef = useRef(null);
   const headTiltHoldRef = useRef(createHoldDetector({ holdMs: HEAD_TILT_HOLD }));
   const headScrollRef = useRef({ id: null, last: 0 });
   const faceGestureRef = useRef(createFaceGestureDetector());
+  const doubleBlinkRef = useRef(createDoubleBlinkDetector());
   const faceLandmarksRef = useRef(null);
+  const eyeFilterXRef = useRef(createOneEuroFilter());
+  const eyeFilterYRef = useRef(createOneEuroFilter());
   const lastResultAtRef = useRef(0);
   const fpsEmaRef = useRef(0);
   const inferenceEmaRef = useRef(0);
   const lastTelemetryCommitRef = useRef(0);
   const lastOverlaySyncRef = useRef(0);
   const auraCounterRef = useRef(0);
+  const lastUiStatusCommitRef = useRef(0);
+  const lastUiStatusRef = useRef({ holding: null, strength: 0, gesture: '', dwell: { progress: 0, label: '' } });
 
   const [theme, setTheme] = useState(() => loadTheme(window.localStorage));
   const [shape, setShape] = useState(() => loadShape(window.localStorage));
@@ -210,6 +222,7 @@ function App() {
   const [sensitivity, setSensitivity] = useState(() => loadSensitivity(window.localStorage));
   const [nativeError, setNativeError] = useState('');
   const [controlOn, setControlOn] = useState(false);
+  const [eyeTracking, setEyeTracking] = useState(() => loadEyeTracking(window.localStorage));
   const [dragging, setDragging] = useState(false);
   const [hotkey, setHotkey] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -257,6 +270,8 @@ function App() {
   sensitivityRef.current = sensitivity;
   const controlRef = useRef(controlOn);
   controlRef.current = controlOn;
+  const eyeTrackingRef = useRef(eyeTracking);
+  eyeTrackingRef.current = eyeTracking;
   const typingRef = useRef(typingOn);
   typingRef.current = typingOn;
   const typingToggleRef = useRef(typingToggle);
@@ -295,6 +310,10 @@ function App() {
     if (desktop && overlayEnabledRef.current && controlRef.current) {
       desktop.emitAura({ x: target.x, y: target.y, kind, label });
     }
+  }, []);
+
+  const enableMouseControl = useCallback(() => {
+    if (streamRef.current && desktop) setControlOn(true);
   }, []);
 
   useEffect(() => {
@@ -343,6 +362,7 @@ function App() {
   );
   useEffect(() => saveGestureSamples(window.localStorage, gestureSamples), [gestureSamples]);
   useEffect(() => saveSensitivity(window.localStorage, sensitivity), [sensitivity]);
+  useEffect(() => saveEyeTracking(window.localStorage, eyeTracking), [eyeTracking]);
   useEffect(() => saveFilterProfile(window.localStorage, filterProfile), [filterProfile]);
   useEffect(() => {
     const profile = FILTER_PROFILES[filterProfile] || FILTER_PROFILES.balanced;
@@ -414,6 +434,11 @@ function App() {
     const canvas = canvasRef.current;
     canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
     setStrength(0);
+    lastUiStatusCommitRef.current = 0;
+    lastUiStatusRef.current = { holding: null, strength: 0, gesture: '', dwell: { progress: 0, label: '' } };
+    setDwellState({ progress: 0, label: '' });
+    setHandPoint(null);
+    lastNativePositionRef.current = null;
   };
 
   const stopCamera = useCallback(() => {
@@ -443,6 +468,9 @@ function App() {
     headTiltHoldRef.current.reset();
     headScrollRef.current = { id: null, last: 0 };
     faceGestureRef.current.reset();
+    doubleBlinkRef.current.reset();
+    eyeFilterXRef.current.reset();
+    eyeFilterYRef.current.reset();
     faceLandmarksRef.current = null;
     teachRef.current = null;
     setTeaching(null);
@@ -491,7 +519,7 @@ function App() {
       }
       if (id === controlToggleRef.current) {
         if (id.startsWith('swipe') && desktop && !typingRef.current) {
-          if (!controlRef.current) setControlOn(true);
+          enableMouseControl();
         }
         return;
       }
@@ -571,7 +599,7 @@ function App() {
         setNativeError(keyError.message || 'The shortcut could not be pressed.');
       }
     },
-    [fireAura, triggerClick],
+    [enableMouseControl, fireAura, triggerClick],
   );
 
   const typeDigit = useCallback(
@@ -601,13 +629,33 @@ function App() {
     ({ landmarks, blendshapes }) => {
       const licking = isLicking(blendshapes);
       faceLandmarksRef.current = landmarks;
+      const now = performance.now();
+      if (eyeTrackingRef.current) {
+        const gaze = eyeGazePoint(landmarks);
+        if (gaze) {
+          const gazePoint = {
+            x: Math.min(1, Math.max(0, eyeFilterXRef.current.filter(gaze.x, now))),
+            y: Math.min(1, Math.max(0, eyeFilterYRef.current.filter(gaze.y, now))),
+          };
+          const screenPosition = toScreen(gazePoint, reachZoneRef.current);
+          lastPositionRef.current = screenPosition;
+          if (cursorRef.current) {
+            cursorRef.current.style.left = `${gazePoint.x * 100}%`;
+            cursorRef.current.style.top = `${gazePoint.y * 100}%`;
+            cursorRef.current.classList.add('visible');
+          }
+          if (desktop && controlRef.current) desktop.moveTo(screenPosition);
+        }
+      }
+      if (doubleBlinkRef.current.update(faceGestures(blendshapes).blink, now)) {
+        triggerClick(lastPositionRef.current);
+      }
       const pitch = headPitchStrength(landmarks);
       const tilt = headTilt(landmarks) ?? pitch?.id ?? null;
       if (tilt !== headTiltRef.current) {
         headTiltRef.current = tilt;
         headTiltHoldRef.current.reset();
       }
-      const now = performance.now();
       if (headTiltHoldRef.current.update(Boolean(tilt), now)) {
         triggerMovement(tilt, undefined, pitch?.intensity ?? 1);
       }
@@ -634,7 +682,7 @@ function App() {
       }
       tongueRef.current = licking;
     },
-    [fireAura, triggerMovement],
+    [enableMouseControl, fireAura, triggerClick, triggerMovement],
   );
   onFaceRef.current = handleFace;
 
@@ -799,15 +847,13 @@ function App() {
         ) &&
         !controlRef.current
       ) {
-        setControlOn(true);
+        enableMouseControl();
       }
-      setHolding(
-        toggleHoldRef.current.isHolding()
-          ? 'typing'
-          : controlHoldRef.current.isHolding()
-            ? 'control'
-            : null,
-      );
+      const nextHolding = toggleHoldRef.current.isHolding()
+        ? 'typing'
+        : controlHoldRef.current.isHolding()
+          ? 'control'
+          : null;
 
       const poseBlocksClick =
         pose === 'fist' ||
@@ -860,21 +906,17 @@ function App() {
         activeDwell = digitProg.ratio;
         activeDwellLabel = `Arming ${digitProg.candidate}`;
       }
-      setDwellState({ progress: activeDwell, label: activeDwellLabel });
-
       const screenPosition = toScreen(smoothed, reachZoneRef.current);
       lastPositionRef.current = screenPosition;
-      setHandPoint(smoothed);
 
       drawLandmarks(landmarks, pinching, otherLandmarks);
       drawMouth();
-      if (cursorRef.current) {
+      if (cursorRef.current && !eyeTrackingRef.current) {
         cursorRef.current.style.left = `${smoothed.x * 100}%`;
         cursorRef.current.style.top = `${smoothed.y * 100}%`;
         cursorRef.current.classList.add('visible');
         cursorRef.current.classList.toggle('pressed', pinching);
       }
-      setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
       const nextGestureLabel = capturing
         ? 'Learning your hand'
         : typing
@@ -884,12 +926,39 @@ function App() {
             : pinching
               ? 'Tap detected'
               : 'Hand ready';
-      setGesture(nextGestureLabel);
+      // Keep tracking and native input at full rate, but throttle React-only status
+      // updates. These values are visual feedback and do not affect gesture decisions.
+      if (now - lastUiStatusCommitRef.current >= UI_STATUS_INTERVAL) {
+        lastUiStatusCommitRef.current = now;
+        const nextStrength = Math.max(0, Math.min(100, Math.round((1 - ratio) * 100)));
+        const previous = lastUiStatusRef.current;
+        if (previous.holding !== nextHolding) setHolding(nextHolding);
+        if (previous.strength !== nextStrength) setStrength(nextStrength);
+        if (previous.gesture !== nextGestureLabel) setGesture(nextGestureLabel);
+        if (previous.dwell.progress !== activeDwell || previous.dwell.label !== activeDwellLabel) {
+          setDwellState({ progress: activeDwell, label: activeDwellLabel });
+        }
+        lastUiStatusRef.current = {
+          holding: nextHolding,
+          strength: nextStrength,
+          gesture: nextGestureLabel,
+          dwell: { progress: activeDwell, label: activeDwellLabel },
+        };
+        setHandPoint(smoothed);
+      }
 
       // Number typing must not freeze the cursor hand. With one visible hand it also
       // remains the typing hand, preserving the original single-hand workflow.
-      if (desktop && controlRef.current && !capturing) {
-        desktop.moveTo(screenPosition);
+      if (desktop && controlRef.current && !capturing && !eyeTrackingRef.current) {
+        const previousNativePosition = lastNativePositionRef.current;
+        if (
+          !previousNativePosition ||
+          Math.abs(screenPosition.x - previousNativePosition.x) >= 0.001 ||
+          Math.abs(screenPosition.y - previousNativePosition.y) >= 0.001
+        ) {
+          lastNativePositionRef.current = screenPosition;
+          desktop.moveTo(screenPosition);
+        }
       }
       if (justPinched) triggerMovement('indexTap', screenPosition);
       if (movement && !capturing) triggerMovement(movement, screenPosition);
@@ -1058,9 +1127,9 @@ function App() {
   useEffect(() => {
     desktop?.getHotkey().then(setHotkey);
     return desktop?.onToggleControl(() => {
-      if (streamRef.current) setControlOn(true);
+      enableMouseControl();
     });
-  }, []);
+  }, [enableMouseControl]);
 
   const handleDemoClick = (event) => {
     setDemoClicks((value) => value + 1);
@@ -1503,6 +1572,8 @@ function App() {
             onChangeFilterProfile={setFilterProfile}
             overlayEnabled={overlayEnabled}
             onChangeOverlayEnabled={setOverlayEnabled}
+            eyeTracking={eyeTracking}
+            onChangeEyeTracking={setEyeTracking}
           />
 
           <NumberTyping
