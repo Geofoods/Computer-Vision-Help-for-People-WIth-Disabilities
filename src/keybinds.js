@@ -3,6 +3,8 @@
 const STORAGE_KEY = 'handtap.keybinds';
 
 export const MOVEMENTS = [
+  { id: 'indexTap', label: 'Tap thumb + index', hint: 'Touch your thumb to your index finger' },
+  { id: 'tongueLick', label: 'Tongue lick', hint: 'Stick out your tongue briefly' },
   { id: 'swipeLeft', label: 'Swipe left', hint: 'Sweep your hand quickly to the left' },
   { id: 'swipeRight', label: 'Swipe right', hint: 'Sweep your hand quickly to the right' },
   { id: 'swipeUp', label: 'Swipe up', hint: 'Sweep your hand quickly upward' },
@@ -12,11 +14,18 @@ export const MOVEMENTS = [
   { id: 'ringTap', label: 'Tap thumb + ring', hint: 'Touch your thumb to your ring finger' },
 ];
 
+export const DEFAULT_BINDINGS = {
+  indexTap: 'Left Click',
+  tongueLick: 'Scroll Down',
+};
+
 // Listed so nobody has to physically press a shortcut, which may be the reason they use this app.
 export const PRESET_GROUPS = [
   {
     label: 'Editing',
     presets: [
+      { label: 'Left click', combo: 'Left Click' },
+      { label: 'Scroll down', combo: 'Scroll Down' },
       { label: 'Copy', combo: 'Ctrl+C' },
       { label: 'Paste', combo: 'Ctrl+V' },
       { label: 'Cut', combo: 'Ctrl+X' },
@@ -127,7 +136,7 @@ export function comboFromEvent(event) {
 
 /** Saved bindings, ignoring anything malformed. Storage can throw or be empty. */
 export function loadBindings(storage) {
-  const bindings = {};
+  const bindings = { ...DEFAULT_BINDINGS };
   try {
     const saved = JSON.parse(storage.getItem(STORAGE_KEY)) ?? {};
     for (const { id } of MOVEMENTS) {
