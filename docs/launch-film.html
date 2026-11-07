@@ -1,0 +1,1279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HandTap Launch Film</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* Layout: a single 16:9 film frame, letterboxed on a deep well, with player chrome floating over its lower edge. */
+  :root {
+    --well: #0b0c0f;
+    --chassis: #111113;
+    --raised: #242427;
+    --pill: #2c2c30;
+    --hairline: rgba(242, 244, 248, 0.08);
+    --ring: rgba(242, 244, 248, 0.14);
+    --text: #f2f4f8;
+    --text-2: #a7aebd;
+    --muted: #7f8798;
+    --emerald: #4cc38a;
+    --glass: rgba(28, 30, 36, 0.74);
+    --glass-edge: rgba(255, 255, 255, 0.16);
+    --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: var(--well);
+    color: var(--text);
+    font-family: var(--font-ui);
+    overflow: hidden;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    box-sizing: border-box;
+  }
+  #app { height: 100%; }
+  .stage {
+    position: relative;
+    height: 100%;
+    display: grid;
+    place-items: center;
+  }
+  .stage.cinema { cursor: none; }
+  .stage:fullscreen { padding: 0; background: var(--well); }
+  canvas {
+    display: block;
+    width: min(100%, calc((100vh - 24px) * 16 / 9));
+    max-width: 100%;
+    aspect-ratio: 16 / 9;
+    height: auto;
+    background: var(--chassis);
+    border-radius: 6px;
+    box-shadow: 0 0 0 1px var(--hairline), 0 40px 120px rgba(0, 0, 0, 0.55);
+  }
+  .stage:fullscreen canvas { width: min(100vw, calc(100vh * 16 / 9)); border-radius: 0; box-shadow: none; }
+  .chrome {
+    position: absolute;
+    left: 50%;
+    bottom: max(20px, env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    width: min(760px, calc(100% - 32px));
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 999px;
+    background: var(--glass);
+    border: 1px solid var(--glass-edge);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 50px rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1), transform 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .chrome.hidden { opacity: 0; transform: translateX(-50%) translateY(8px); pointer-events: none; }
+  .btn {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border-radius: 999px;
+    border: 1px solid var(--hairline);
+    background: var(--raised);
+    color: var(--text);
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    transition: background-color 80ms linear, border-color 80ms linear;
+  }
+  .btn:hover { background: var(--pill); border-color: var(--ring); }
+  .btn:focus-visible, .scrub:focus-visible { outline: 2px solid #6b97ff; outline-offset: 2px; }
+  .btn.on { color: var(--emerald); border-color: rgba(76, 195, 138, 0.4); }
+  .btn svg { width: 16px; height: 16px; }
+  .scrub {
+    flex: 1;
+    min-width: 60px;
+    accent-color: var(--emerald);
+    height: 4px;
+    cursor: pointer;
+  }
+  .time {
+    flex: none;
+    font: 500 12px/1 var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-2);
+    min-width: 104px;
+    text-align: right;
+  }
+  .hint {
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top, 0px));
+    right: 0;
+    font: 400 11px/1 var(--font-mono);
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    transition: opacity 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .hint.hidden { opacity: 0; }
+  @media (max-width: 560px) {
+    .time { min-width: 0; font-size: 11px; }
+    .hint { display: none; }
+    .btn { width: 32px; height: 32px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chrome, .hint { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script>
+(() => {
+'use strict';
+const W = 1920, H = 1080, DURATION = 55;
+
+/* ───────────── Tokens ───────────── */
+const C = {
+  well: '#0b0c0f', chassis: '#111113', s1: '#171717', s2: '#1d1d1f', s3: '#242427', s4: '#2c2c30',
+  hair: 'rgba(242,244,248,0.08)', ring: 'rgba(242,244,248,0.14)',
+  t1: '#f2f4f8', t2: '#a7aebd', t3: '#7f8798',
+  em: '#4cc38a', em2: '#5cd69b', emSoft: 'rgba(76,195,138,0.13)',
+  cob: '#6b97ff', sky: '#7dd3fc', amb: '#e5a00d',
+  glass: 'rgba(28,30,36,0.86)', glassEdge: 'rgba(255,255,255,0.16)',
+};
+const LIGHT = { bg: '#fafafa', s1: '#ffffff', s2: '#ffffff', s3: '#f2f2f4', hair: 'rgba(17,17,19,0.08)', ring: 'rgba(17,17,19,0.14)', t1: '#111113', t2: '#4b5160', t3: '#7a8090', shadow: 'rgba(17,17,19,0.10)', rim: 'rgba(255,255,255,0.9)' };
+const DARK = { bg: C.chassis, s1: C.s1, s2: C.s2, s3: C.s3, hair: C.hair, ring: C.ring, t1: C.t1, t2: C.t2, t3: C.t3, shadow: 'rgba(0,0,0,0.5)', rim: 'rgba(255,255,255,0.08)' };
+
+/* ───────────── Math & motion physics ───────────── */
+const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+function cubicBezier(x1, y1, x2, y2) {
+  return (x) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let u = x;
+    for (let i = 0; i < 10; i += 1) {
+      const fx = 3 * x1 * u * (1 - u) ** 2 + 3 * x2 * u * u * (1 - u) + u ** 3 - x;
+      const d = 3 * x1 * (1 - u) ** 2 + 6 * (x2 - x1) * u * (1 - u) + 3 * (1 - x2) * u * u;
+      if (Math.abs(fx) < 1e-6) break;
+      u = clamp(u - fx / (d || 1e-6));
+    }
+    return 3 * y1 * u * (1 - u) ** 2 + 3 * y2 * u * u * (1 - u) + u ** 3;
+  };
+}
+const quint = cubicBezier(0.22, 1, 0.36, 1);
+const Q = (t, start, dur) => quint(prog(t, start, start + dur));
+// Closed-form damped spring step response (mass 1), so any frame can be evaluated directly.
+function spring(dt, k, c) {
+  if (dt <= 0) return 0;
+  const w = Math.sqrt(k), z = c / (2 * w);
+  if (z < 1) {
+    const wd = w * Math.sqrt(1 - z * z);
+    return 1 - Math.exp(-z * w * dt) * (Math.cos(wd * dt) + (z * w / wd) * Math.sin(wd * dt));
+  }
+  return 1 - Math.exp(-w * dt) * (1 + w * dt);
+}
+const SF = (t, a) => spring(t - a, 520, 38);   // fast
+const SM = (t, a) => spring(t - a, 340, 32);   // moderate
+const SS = (t, a) => spring(t - a, 220, 28);   // slow spatial, light overshoot
+const SPOP = (t, a) => spring(t - a, 300, 16); // digit pop, visible overshoot
+// Interpolate a value through a schedule of [time, value] steps with a spring between each.
+function springSteps(t, steps, fn = SM) {
+  let v = steps[0][1];
+  for (let i = 1; i < steps.length; i += 1) {
+    const [ti, vi] = steps[i];
+    if (t < ti) break;
+    v = lerp(v, vi, fn(t, ti));
+  }
+  return v;
+}
+const tremor = (t, seed) => Math.sin(t * 37.1 + seed) * 0.5 + Math.sin(t * 53.7 + seed * 2.3) * 0.32 + Math.sin(t * 91.3 + seed * 3.7) * 0.18;
+
+/* ───────────── Canvas helpers ───────────── */
+let ctx, SA = 1;
+const A = (a = 1) => { ctx.globalAlpha = clamp(SA * a); };
+function rr(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, Math.max(0, Math.min(r, h / 2, w / 2))); }
+function card(x, y, w, h, r, o = {}) {
+  const fill = o.fill ?? C.s2;
+  ctx.save();
+  if (o.shadow !== false) {
+    ctx.shadowColor = o.shadowColor ?? 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = o.blur ?? 48;
+    ctx.shadowOffsetY = o.oy ?? 20;
+  }
+  rr(x, y, w, h, r); ctx.fillStyle = fill; ctx.fill();
+  ctx.restore();
+  if (o.light) { // second, tighter shadow layer for the light theme
+    ctx.save(); ctx.shadowColor = 'rgba(17,17,19,0.06)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1;
+    rr(x, y, w, h, r); ctx.fillStyle = fill; ctx.fill(); ctx.restore();
+  }
+  rr(x + 0.5, y + 0.5, w - 1, h - 1, r - 0.5); ctx.strokeStyle = o.stroke ?? C.hair; ctx.lineWidth = 1; ctx.stroke();
+  if (o.rim !== false) {
+    ctx.save(); rr(x, y, w, h, r); ctx.clip();
+    const g = ctx.createLinearGradient(0, y, 0, y + Math.min(12, h));
+    g.addColorStop(0, o.rimColor ?? 'rgba(255,255,255,0.08)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.strokeStyle = g; ctx.lineWidth = 2; rr(x + 1, y + 1, w - 2, h - 2, r - 1); ctx.stroke();
+    ctx.restore();
+  }
+}
+function font(o) {
+  const size = o.size ?? 24;
+  ctx.font = `${o.weight ?? (o.mono ? 400 : 500)} ${size}px ${o.mono ? '"JetBrains Mono", ui-monospace, monospace' : 'Inter, system-ui, sans-serif'}`;
+  ctx.letterSpacing = o.ls ?? (o.mono ? `${(size * 0.02).toFixed(2)}px` : size >= 40 ? `${(-0.03 * size).toFixed(2)}px` : `${(-0.011 * size).toFixed(2)}px`);
+}
+function T(str, x, y, o = {}) {
+  font(o);
+  ctx.textAlign = o.align ?? 'left';
+  ctx.textBaseline = o.base ?? 'alphabetic';
+  ctx.fillStyle = o.color ?? C.t1;
+  ctx.fillText(str, x, y);
+}
+function TW(str, o = {}) { font(o); return ctx.measureText(str).width; }
+// Baseline-clipped reveal: the line rises from behind its own baseline.
+function reveal(str, x, y, o, e) {
+  if (e <= 0) return;
+  const size = o.size ?? 24;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(-W, y - size * 1.1, W * 3, size * 1.45); ctx.clip();
+  A((o.alpha ?? 1) * Math.min(1, e * 1.6));
+  T(str, x, y + (1 - e) * size * 1.15, o);
+  ctx.restore();
+  A(1);
+}
+function dot(x, y, r, color) { ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fillStyle = color; ctx.fill(); }
+function background(theme = DARK) {
+  ctx.fillStyle = theme.bg; ctx.fillRect(0, 0, W, H);
+  if (theme === DARK) {
+    const g = ctx.createRadialGradient(W / 2, H * 0.44, 0, W / 2, H / 2, W * 0.72);
+    g.addColorStop(0, 'rgba(255,255,255,0.03)'); g.addColorStop(0.55, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,0,0,0.42)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  }
+}
+function withCamera(cx, cy, scale, fn) {
+  ctx.save(); ctx.translate(W / 2, H / 2); ctx.scale(scale, scale); ctx.translate(-cx, -cy); fn(); ctx.restore();
+}
+// Orthographic tilt: an affine approximation of rotateX/rotateY around a centre.
+function withTilt(cx, cy, rx, ry, fn) {
+  const ax = (rx * Math.PI) / 180, ay = (ry * Math.PI) / 180;
+  ctx.save(); ctx.translate(cx, cy);
+  ctx.transform(Math.cos(ay), Math.sin(ay) * 0.18, -Math.sin(ax) * 0.12, Math.cos(ax), 0, 0);
+  ctx.translate(-cx, -cy); fn(); ctx.restore();
+}
+function caption(str, t, start, theme = DARK) {
+  const e = Q(t, start, 0.8);
+  if (e <= 0) return;
+  A(e); ctx.fillStyle = C.em; rr(120, 966, 3, 26, 1.5); ctx.fill(); A(1);
+  reveal(str, 138, 988, { size: 24, weight: 500, color: theme.t2 }, e);
+}
+function monoTag(str, x, y, o = {}) {
+  const size = o.size ?? 14, padX = o.padX ?? 12, h = o.h ?? 30;
+  const w = TW(str, { mono: true, size, weight: 500 }) + padX * 2 + (o.dot ? 16 : 0);
+  const bx = o.align === 'center' ? x - w / 2 : o.align === 'right' ? x - w : x;
+  card(bx, y, w, h, h / 2, { fill: o.fill ?? C.s3, stroke: o.stroke ?? C.ring, shadow: false, rimColor: o.rim });
+  if (o.dot) dot(bx + padX + 4, y + h / 2, 3.5, o.dot);
+  T(str, bx + padX + (o.dot ? 16 : 0), y + h / 2 + 1, { mono: true, size, weight: 500, color: o.color ?? C.t2, base: 'middle' });
+  return { x: bx, y, w, h };
+}
+
+/* ───────────── Hand model: 21 MediaPipe landmarks ───────────── */
+const BONES = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+const FINGERS = [
+  { m: [-0.31, -0.93], L: [0.40, 0.24, 0.19], sp: -0.17 },
+  { m: [-0.08, -1.00], L: [0.45, 0.28, 0.20], sp: -0.04 },
+  { m: [0.15, -0.95], L: [0.42, 0.26, 0.19], sp: 0.08 },
+  { m: [0.35, -0.83], L: [0.33, 0.20, 0.17], sp: 0.21 },
+];
+const THUMB_OPEN = [[-0.24, -0.16], [-0.47, -0.34], [-0.63, -0.55], [-0.75, -0.75]];
+const THUMB_TUCK = [[-0.24, -0.16], [-0.36, -0.40], [-0.22, -0.60], [-0.02, -0.64]];
+// Fingers curl in a side plane and are projected onto the image, so a curled finger folds over the palm.
+function handPts({ x, y, s, rot = 0, curl = [0, 0, 0, 0], thumb = 0, pinch = 0, mir = 1, spread = 1 }) {
+  const P = new Array(21);
+  P[0] = [0, 0];
+  FINGERS.forEach((f, i) => {
+    const c = clamp(curl[i] + (i === 0 ? pinch * 0.32 : 0));
+    const base = 5 + i * 4;
+    const sp = f.sp * spread;
+    const ax = Math.sin(sp), ay = -Math.cos(sp);
+    P[base] = [f.m[0], f.m[1]];
+    let th = 0, u = 0, d = 0;
+    const bends = [1.3, 1.6, 1.1];
+    for (let j = 0; j < 3; j += 1) {
+      th += c * bends[j];
+      u += Math.cos(th) * f.L[j];
+      d += Math.sin(th) * f.L[j];
+      const persp = 1 / (1 + d * 0.22);
+      P[base + 1 + j] = [f.m[0] + ax * u * persp - d * 0.05, f.m[1] + ay * u * persp];
+    }
+  });
+  for (let j = 0; j < 4; j += 1) P[1 + j] = [lerp(THUMB_OPEN[j][0], THUMB_TUCK[j][0], thumb), lerp(THUMB_OPEN[j][1], THUMB_TUCK[j][1], thumb)];
+  if (pinch > 0) {
+    const tip = P[8];
+    P[4] = [lerp(P[4][0], tip[0] - 0.015, pinch), lerp(P[4][1], tip[1] + 0.03, pinch)];
+    const mid = [(P[2][0] + tip[0]) / 2 - 0.05, (P[2][1] + tip[1]) / 2 + 0.04];
+    P[3] = [lerp(P[3][0], mid[0], pinch * 0.8), lerp(P[3][1], mid[1], pinch * 0.8)];
+  }
+  const cs = Math.cos(rot), sn = Math.sin(rot);
+  return P.map(([px, py]) => {
+    const qx = px * mir;
+    return [x + s * (qx * cs - py * sn), y + s * (qx * sn + py * cs)];
+  });
+}
+function moveTo(pts, index, tx, ty) {
+  const dx = tx - pts[index][0], dy = ty - pts[index][1];
+  return pts.map(([px, py]) => [px + dx, py + dy]);
+}
+function drawHand(pts, color, o = {}) {
+  const a = o.alpha ?? 1, w = o.w ?? 2.6, r = o.r ?? 4.6;
+  A(a * 0.07); ctx.beginPath();
+  [0, 1, 5, 9, 13, 17].forEach((i, n) => (n ? ctx.lineTo(...pts[i]) : ctx.moveTo(...pts[i])));
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  A(a * 0.9); ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); BONES.forEach(([p, q]) => { ctx.moveTo(...pts[p]); ctx.lineTo(...pts[q]); }); ctx.stroke();
+  A(a);
+  pts.forEach(([px, py], i) => {
+    const tip = i === 4 || i === 8 || i === 12 || i === 16 || i === 20;
+    ctx.beginPath(); ctx.arc(px, py, tip ? r * 1.15 : r, 0, Math.PI * 2);
+    ctx.fillStyle = C.well; ctx.fill(); ctx.lineWidth = 1.8; ctx.strokeStyle = color; ctx.stroke();
+  });
+  A(1);
+}
+
+/* ───────────── Shared visual systems ───────────── */
+// Capsules orient like iron filings around the hand's landmarks.
+function gravityField(rect, pts, alpha = 1, spacing = 34) {
+  const { x, y, w, h } = rect;
+  ctx.lineCap = 'round';
+  const cols = Math.floor(w / spacing), rows = Math.floor(h / spacing);
+  const ox = x + (w - (cols - 1) * spacing) / 2, oy = y + (h - (rows - 1) * spacing) / 2;
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < cols; c += 1) {
+      const px = ox + c * spacing, py = oy + r * spacing;
+      let best = Infinity, bx = 0, by = 0, sx = 0, sy = 0;
+      for (let i = 0; i < pts.length; i += 1) {
+        const dx = pts[i][0] - px, dy = pts[i][1] - py;
+        const d2 = dx * dx + dy * dy;
+        const wgt = 1 / (d2 + 900);
+        sx += -dy * wgt; sy += dx * wgt; // tangential flow
+        if (d2 < best) { best = d2; bx = dx; by = dy; }
+      }
+      const d = Math.sqrt(best);
+      const inf = Math.exp(-d / (spacing * 4.2));
+      const base = -0.55;
+      const fx = lerp(Math.cos(base), sx / (Math.hypot(sx, sy) || 1), inf);
+      const fy = lerp(Math.sin(base), sy / (Math.hypot(sx, sy) || 1), inf);
+      const n = Math.hypot(fx, fy) || 1;
+      const len = (spacing * 0.2) + spacing * 0.36 * inf;
+      A(alpha * (0.16 + 0.7 * inf));
+      ctx.strokeStyle = inf > 0.35 ? C.em : C.t3;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(px - (fx / n) * len / 2, py - (fy / n) * len / 2);
+      ctx.lineTo(px + (fx / n) * len / 2, py + (fy / n) * len / 2);
+      ctx.stroke();
+    }
+  }
+  A(1);
+}
+function slidingPill(x, y, labels, pos, o = {}) {
+  const segW = o.segW ?? 132, h = o.h ?? 44, pad = 4;
+  const w = segW * labels.length + pad * 2;
+  card(x, y, w, h, h / 2, { fill: o.fill ?? C.s1, stroke: o.stroke ?? C.hair, shadow: false, rim: false });
+  const hx = x + pad + pos * segW;
+  card(hx, y + pad, segW, h - pad * 2, (h - pad * 2) / 2, { fill: o.active ?? C.s4, stroke: o.ring ?? C.ring, shadow: false, rimColor: o.rimColor });
+  labels.forEach((label, i) => {
+    const near = 1 - clamp(Math.abs(pos - i));
+    T(label, x + pad + i * segW + segW / 2, y + h / 2 + 1, { size: 17, weight: 500, align: 'center', base: 'middle', color: near > 0.5 ? (o.on ?? C.t1) : (o.off ?? C.t3) });
+  });
+  return w;
+}
+function cursorArrow(x, y, s = 1, color = C.t1) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  ctx.beginPath();
+  [[0, 0], [0, 27], [7, 21], [12, 32], [16.5, 30], [11.5, 19.5], [20, 19.5]].forEach(([px, py], i) => (i ? ctx.lineTo(px, py) : ctx.moveTo(px, py)));
+  ctx.closePath(); ctx.fillStyle = color; ctx.fill(); ctx.lineWidth = 1.6; ctx.strokeStyle = C.well; ctx.stroke();
+  ctx.restore();
+}
+function ringArc(cx, cy, r, p, color, w = 3) {
+  A(0.25); ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.strokeStyle = C.t1; ctx.lineWidth = 1; ctx.stroke();
+  if (p <= 0) { A(1); return; }
+  A(1); ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * p);
+  ctx.strokeStyle = color; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.stroke();
+}
+// VisionAura: a restrained refracting ripple with six buoyant bubbles.
+function aura(cx, cy, t, t0, scale = 1) {
+  const lt = t - t0;
+  if (lt < 0 || lt > 1.2) return;
+  const e = quint(clamp(lt / 0.95));
+  const fade = (1 - clamp(lt / 1.2)) ** 1.6;
+  const R = (18 + 165 * e) * scale;
+  const g = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R);
+  g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.85, 'rgba(242,244,248,0.05)'); g.addColorStop(1, 'rgba(242,244,248,0)');
+  A(fade); ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.fill();
+  [[C.cob, 1.045, 0.4], [C.t1, 1, 0.6], [C.em, 0.955, 0.45]].forEach(([color, k, a]) => {
+    A(fade * a); ctx.beginPath(); ctx.arc(cx, cy, R * k, 0, Math.PI * 2);
+    ctx.strokeStyle = color; ctx.lineWidth = 0.8 + 1.6 * (1 - e); ctx.stroke();
+  });
+  for (let i = 0; i < 6; i += 1) {
+    const ang = -Math.PI / 2 + (i - 2.5) * 0.62 + Math.sin(i * 7.3) * 0.12;
+    const popAt = 0.42 + i * 0.06;
+    const rise = quint(clamp(lt / 0.8));
+    const dist = (36 + (60 + i * 9) * rise) * scale;
+    const bx = cx + Math.cos(ang) * dist, by = cy + Math.sin(ang) * dist - 18 * rise * scale;
+    if (lt < popAt) {
+      A(0.75 * Math.min(1, lt * 8)); ctx.beginPath(); ctx.arc(bx, by, (3 + (i % 3)) * scale, 0, Math.PI * 2);
+      ctx.strokeStyle = i % 2 ? C.em2 : C.t1; ctx.lineWidth = 1.2; ctx.stroke();
+    } else if (lt < popAt + 0.18) {
+      const p = (lt - popAt) / 0.18;
+      A(0.6 * (1 - p)); ctx.beginPath(); ctx.arc(bx, by, (4 + 8 * p) * scale, 0, Math.PI * 2);
+      ctx.strokeStyle = C.t1; ctx.lineWidth = 0.8; ctx.stroke();
+    }
+  }
+  A(1);
+}
+function glassPill(cx, y, label, dotColor, e, o = {}) {
+  if (e <= 0.001) return;
+  const size = o.size ?? 20, h = o.h ?? 46;
+  const w = TW(label, { size, weight: 500 }) + 64;
+  ctx.save(); ctx.translate(cx, y + h / 2); ctx.scale(lerp(0.86, 1, e), lerp(0.86, 1, e)); ctx.translate(-cx, -(y + h / 2));
+  A(clamp(e * 1.4));
+  card(cx - w / 2, y, w, h, h / 2, { fill: C.glass, stroke: C.glassEdge, blur: 30, oy: 12 });
+  dot(cx - w / 2 + 26, y + h / 2, 5, dotColor);
+  T(label, cx - w / 2 + 42, y + h / 2 + 1, { size, weight: 500, base: 'middle', color: C.t1 });
+  ctx.restore(); A(1);
+}
+function logoMark(cx, cy, s, theme = DARK) {
+  card(cx - s / 2, cy - s / 2, s, s, s * 0.27, { fill: theme === DARK ? C.s3 : '#111113', stroke: theme.ring, blur: 24, oy: 8 });
+  ctx.lineCap = 'round'; ctx.strokeStyle = '#f2f4f8'; ctx.lineWidth = s * 0.085;
+  [[-0.17, 0.2], [0, 0.29], [0.17, 0.22]].forEach(([dx, hgt]) => {
+    ctx.beginPath(); ctx.moveTo(cx + dx * s, cy + s * 0.2); ctx.lineTo(cx + dx * s, cy + s * 0.2 - hgt * s); ctx.stroke();
+  });
+  dot(cx - 0.17 * s, cy - s * 0.2, s * 0.06, C.em);
+}
+
+/* ───────────── Scene 1 · Premise ───────────── */
+const BADGE = { w: 0, h: 40 };
+const STAGE = { x: 120, y: 96, w: 1680, h: 830 };
+function scene1(t) {
+  background();
+  const out = Q(t, 5.0, 0.6);
+  // Beat 1
+  const e1 = Q(t, 0.4, 1.0);
+  const recede = Q(t, 3.2, 0.9);
+  const shift = Q(t, 0.9, 1.4);
+  if (out < 1) {
+    ctx.save();
+    const y1 = lerp(530, 430, recede);
+    ctx.translate(W / 2, y1); ctx.scale(1 - 0.06 * recede, 1 - 0.06 * recede); ctx.translate(-W / 2, -y1);
+    if (recede > 0) ctx.filter = `blur(${(4 * recede).toFixed(2)}px)`;
+    const col = shift < 1 ? `rgb(${Math.round(lerp(167, 242, shift))},${Math.round(lerp(174, 244, shift))},${Math.round(lerp(189, 248, shift))})` : C.t1;
+    reveal('Every desktop assumes ten steady fingers on plastic and glass.', W / 2, y1, { size: 60, weight: 500, align: 'center', color: col, alpha: (1 - 0.82 * recede) * (1 - out) }, e1);
+    ctx.restore();
+    // Beat 2
+    const e2 = Q(t, 3.3, 0.85);
+    reveal('Software that adapts to your body instead.', W / 2, 580, { size: 88, weight: 600, align: 'center', color: C.t1, alpha: 1 - out }, e2);
+  }
+  // Beat 3: lockup
+  const e3 = SS(t, 5.2);
+  const expand = SM(t, 6.35);
+  const lock = 1 - Q(t, 6.3, 0.35);
+  if (t >= 5.2) {
+    const wordW = TW('HandTap', { size: 72, weight: 600 });
+    const total = 76 + 22 + wordW;
+    const lx = W / 2 - total / 2;
+    ctx.save();
+    A(clamp(e3) * lock);
+    ctx.translate(0, (1 - e3) * 16);
+    logoMark(lx + 38, 480, 76);
+    T('HandTap', lx + 76 + 22, 480 + 26, { size: 72, weight: 600 });
+    ctx.restore(); A(1);
+  }
+  if (t >= 5.45) {
+    const label = 'LOCAL SPATIAL INPUT · WINDOWS DESKTOP';
+    const bw = TW(label, { mono: true, size: 16, weight: 500 }) + 36;
+    const be = SS(t, 5.45);
+    const bx = lerp(W / 2 - bw / 2, STAGE.x, expand), by = lerp(572, STAGE.y, expand);
+    const w = lerp(bw, STAGE.w, expand), h = lerp(40, STAGE.h, expand), r = lerp(20, 28, expand);
+    A(clamp(be * 1.3));
+    card(bx, by, w, h, r, { fill: expand > 0.02 ? C.s1 : C.s3, stroke: C.ring, shadow: expand > 0.2, blur: 60, oy: 30 });
+    A(clamp(be * 1.3) * (1 - clamp(expand * 3)));
+    T(label, W / 2, 572 + 21, { mono: true, size: 16, weight: 500, align: 'center', base: 'middle', color: C.t2 });
+    A(1);
+  }
+}
+
+/* ───────────── Scene 2 · Gravity field & 1€ filter ───────────── */
+const FIELD = { x: 150, y: 150, w: 1010, h: 740 };
+function scene2Hand(t) {
+  const lt = t - 7;
+  return handPts({
+    x: 640 + Math.sin(lt * 0.55) * 120 + Math.sin(lt * 1.3) * 18,
+    y: 760 + Math.sin(lt * 0.42 + 1) * 40,
+    s: 250,
+    rot: Math.sin(lt * 0.5) * 0.12,
+    curl: [0.05 + 0.08 * Math.sin(lt * 0.9), 0.08 + 0.1 * Math.sin(lt * 0.8 + 1), 0.15 + 0.12 * Math.sin(lt * 0.7 + 2), 0.2 + 0.12 * Math.sin(lt * 0.75 + 3)],
+    spread: 1 + 0.12 * Math.sin(lt * 0.6),
+  });
+}
+function filterAmount(tau) { return lerp(0.55, 0.035, SM(tau, 11.5)); }
+function scene2(t) {
+  background();
+  const push = lerp(1, 1.06, quint(prog(t, 7, 16)));
+  withCamera(W / 2, H / 2, push, () => {
+    card(STAGE.x, STAGE.y, STAGE.w, STAGE.h, 28, { fill: C.s1, stroke: C.ring, blur: 60, oy: 30 });
+    // Header
+    const he = Q(t, 7.15, 0.7);
+    reveal('Hero gravity field', 180, 150, { size: 22, weight: 600 }, he);
+    A(he); monoTag('21 LANDMARKS · LIVE', 1150, 126, { align: 'right', dot: C.em, size: 13 }); A(1);
+    // Field, tilted
+    const fe = SS(t, 7.25);
+    const pts = scene2Hand(t);
+    withTilt(FIELD.x + FIELD.w / 2, FIELD.y + FIELD.h / 2, 8, -6, () => {
+      A(clamp(fe)); card(FIELD.x, FIELD.y + 30, FIELD.w, FIELD.h - 40, 20, { fill: C.well, stroke: C.hair, shadow: false });
+      ctx.save(); rr(FIELD.x, FIELD.y + 30, FIELD.w, FIELD.h - 40, 20); ctx.clip();
+      gravityField({ x: FIELD.x + 10, y: FIELD.y + 40, w: FIELD.w - 20, h: FIELD.h - 60 }, pts, clamp(fe));
+      drawHand(pts, C.em, { alpha: clamp(fe) });
+      ctx.restore();
+    });
+    // Trace panel
+    const pe = SS(t, 7.7);
+    ctx.save(); ctx.translate((1 - pe) * 40, 0); A(clamp(pe));
+    const px = 1200, py = 150, pw = 570, ph = 520;
+    card(px, py, pw, ph, 20, { fill: C.s2 });
+    T('Cursor path', px + 28, py + 46, { size: 20, weight: 600 });
+    T('Same hand, two signals', px + 28, py + 74, { size: 15, color: C.t3 });
+    const pos = springSteps(t, [[0, 2], [11.5, 0]], SM);
+    slidingPill(px + 28, py + 98, ['Steady', 'Balanced', 'Agile'], pos, { segW: 168 });
+    // plot
+    const gx = px + 28, gy = py + 170, gw = pw - 56, gh = 230;
+    card(gx, gy, gw, gh, 12, { fill: C.well, stroke: C.hair, shadow: false, rim: false });
+    ctx.save(); rr(gx, gy, gw, gh, 12); ctx.clip();
+    A(clamp(pe) * 0.5); ctx.strokeStyle = C.hair; ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i += 1) { ctx.beginPath(); ctx.moveTo(gx, gy + (gh / 4) * i); ctx.lineTo(gx + gw, gy + (gh / 4) * i); ctx.stroke(); }
+    A(clamp(pe));
+    const N = 240, span = 4;
+    const path = (fn) => { const out = []; for (let i = 0; i <= N; i += 1) { const tau = t - span + (span * i) / N; if (tau < 7) continue; out.push([gx + (gw * i) / N, gy + gh / 2 + fn(tau)]); } return out; };
+    const smooth = (tau) => Math.sin(tau * 1.25) * 52 + Math.sin(tau * 0.62 + 1) * 26;
+    const raw = path((tau) => smooth(tau) + tremor(tau, 1) * 30);
+    const fil = path((tau) => smooth(tau) + tremor(tau, 1) * 30 * filterAmount(tau));
+    ctx.setLineDash([5, 6]); ctx.strokeStyle = C.t3; ctx.lineWidth = 1.5; ctx.beginPath();
+    raw.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.stroke(); ctx.setLineDash([]);
+    const curve = () => { ctx.beginPath(); fil.forEach(([x, y], i) => { if (!i) ctx.moveTo(x, y); else { const [x0, y0] = fil[i - 1]; ctx.quadraticCurveTo(x0, y0, (x0 + x) / 2, (y0 + y) / 2); } }); };
+    A(clamp(pe) * 0.16); ctx.strokeStyle = C.em; ctx.lineWidth = 8; curve(); ctx.stroke();
+    A(clamp(pe)); ctx.lineWidth = 2.6; curve(); ctx.stroke();
+    if (fil.length) { const [ex, ey] = fil[fil.length - 1]; dot(ex - 2, ey, 5.5, C.em2); }
+    ctx.restore();
+    // legend
+    ctx.setLineDash([5, 6]); ctx.strokeStyle = C.t3; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(gx, gy + gh + 34); ctx.lineTo(gx + 28, gy + gh + 34); ctx.stroke(); ctx.setLineDash([]);
+    T('Raw camera input (tremor)', gx + 40, gy + gh + 39, { size: 15, color: C.t2 });
+    ctx.strokeStyle = C.em; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(gx + 270, gy + gh + 34); ctx.lineTo(gx + 298, gy + gh + 34); ctx.stroke();
+    T('1€ Adaptive Filter', gx + 310, gy + gh + 39, { size: 15, color: C.t2 });
+    // metrics
+    const jitter = lerp(11.4, 0.6, SM(t, 11.6));
+    T('JITTER', gx, gy + gh + 86, { mono: true, size: 12, color: C.t3 });
+    T(`±${jitter.toFixed(1)} px`, gx, gy + gh + 112, { mono: true, size: 20, weight: 500, color: SM(t, 11.6) > 0.5 ? C.em2 : C.t1 });
+    T('LATENCY', gx + 200, gy + gh + 86, { mono: true, size: 12, color: C.t3 });
+    T('8.2 ms', gx + 200, gy + gh + 112, { mono: true, size: 20, weight: 500 });
+    T('PROFILE', gx + 360, gy + gh + 86, { mono: true, size: 12, color: C.t3 });
+    T(pos < 1 ? 'Steady' : 'Agile', gx + 360, gy + gh + 112, { mono: true, size: 20, weight: 500 });
+    ctx.restore(); A(1);
+    // filter constants card
+    const ce = SS(t, 8.1);
+    ctx.save(); ctx.translate((1 - ce) * 40, 0); A(clamp(ce));
+    const cy = 696;
+    card(px, cy, pw, 200, 20, { fill: C.s2 });
+    T('One Euro filter', px + 28, cy + 44, { size: 18, weight: 600 });
+    T('Smooths hard when still, lets go when moving', px + 28, cy + 70, { size: 15, color: C.t3 });
+    const k = SM(t, 11.5);
+    const rows = [['min cutoff', lerp(2.0, 0.6, k).toFixed(2), 'Hz'], ['beta', lerp(0.12, 0.02, k).toFixed(3), ''], ['d cutoff', lerp(1.5, 0.8, k).toFixed(2), 'Hz']];
+    rows.forEach(([name, val, unit], i) => {
+      const rx = px + 28 + i * 176;
+      card(rx, cy + 96, 160, 76, 12, { fill: C.s3, shadow: false });
+      T(name.toUpperCase(), rx + 16, cy + 124, { mono: true, size: 11, color: C.t3 });
+      T(`${val} ${unit}`, rx + 16, cy + 154, { mono: true, size: 19, weight: 500 });
+    });
+    ctx.restore(); A(1);
+  });
+  caption('Adaptive 1€ tremor filtering — steady precision at rest, zero lag in motion.', t, 8.3);
+}
+
+/* ───────────── Scene 3 · Pinch, dwell & aura across apps ───────────── */
+function windowFrame(x, y, w, h, title, kind, focused) {
+  card(x, y, w, h, 14, { fill: C.s2, stroke: focused ? C.ring : C.hair, blur: 50, oy: 24 });
+  ctx.save(); rr(x, y, w, h, 14); ctx.clip();
+  ctx.fillStyle = C.s1; ctx.fillRect(x, y, w, 42);
+  ctx.fillStyle = C.hair; ctx.fillRect(x, y + 42, w, 1);
+  T(title, x + 18, y + 27, { size: 14, weight: 500, color: focused ? C.t1 : C.t2 });
+  // Windows-style caption buttons
+  ctx.strokeStyle = C.t3; ctx.lineWidth = 1.3;
+  const bx = x + w - 120;
+  ctx.beginPath(); ctx.moveTo(bx, y + 21); ctx.lineTo(bx + 12, y + 21); ctx.stroke();
+  ctx.strokeRect(bx + 40.5, y + 15.5, 11, 11);
+  ctx.beginPath(); ctx.moveTo(bx + 82, y + 15); ctx.lineTo(bx + 94, y + 27); ctx.moveTo(bx + 94, y + 15); ctx.lineTo(bx + 82, y + 27); ctx.stroke();
+  const cx = x + 22, cy = y + 66;
+  if (kind === 'code') {
+    const lines = [[0, [[60, C.cob], [120, C.t2], [40, C.t3]]], [1, [[90, C.t2], [70, C.em], [30, C.t3]]], [1, [[50, C.t3], [140, C.t2]]], [2, [[110, C.cob], [60, C.t2]]], [2, [[70, C.t2], [90, C.em]]], [1, [[40, C.t3]]], [0, [[30, C.t3]]], [0, [[80, C.cob], [100, C.t2]]], [1, [[120, C.t2], [50, C.amb]]], [1, [[60, C.t3], [80, C.t2]]], [0, [[30, C.t3]]]];
+    lines.forEach(([indent, toks], i) => {
+      T(String(i + 1).padStart(2, ' '), cx, cy + i * 30 + 10, { mono: true, size: 13, color: C.t3 });
+      let tx = cx + 44 + indent * 28;
+      toks.forEach(([tw, col]) => { A(0.55); ctx.fillStyle = col; rr(tx, cy + i * 30, tw, 11, 5.5); ctx.fill(); tx += tw + 10; });
+      A(1);
+    });
+  } else if (kind === 'browser') {
+    card(cx, y + 56, w - 44, 34, 17, { fill: C.s3, shadow: false, rim: false });
+    T('handtap.app/docs/reach', cx + 18, y + 78, { mono: true, size: 13, color: C.t3 });
+    card(cx, y + 110, w - 44, 170, 12, { fill: C.s3, shadow: false });
+    A(0.7); ctx.fillStyle = C.t2; rr(cx + 24, y + 150, 300, 18, 9); ctx.fill(); rr(cx + 24, y + 182, 220, 12, 6); ctx.fill(); A(1);
+    for (let i = 0; i < 6; i += 1) { A(0.35); ctx.fillStyle = C.t3; rr(cx, y + 306 + i * 26, (w - 44) * (i % 3 === 2 ? 0.6 : 0.95), 10, 5); ctx.fill(); }
+    A(1);
+  } else {
+    const colW = (w - 44) / 5;
+    for (let c = 0; c <= 5; c += 1) { ctx.fillStyle = C.hair; ctx.fillRect(cx + c * colW, cy - 6, 1, h - 90); }
+    for (let r = 0; r < 12; r += 1) {
+      ctx.fillStyle = C.hair; ctx.fillRect(cx, cy - 6 + r * 30, w - 44, 1);
+      if (r === 0) ['Region', 'Q1', 'Q2', 'Q3', 'Q4'].forEach((hdr, c) => T(hdr, cx + c * colW + 10, cy + 14, { size: 13, weight: 600, color: C.t2 }));
+      else if (r < 11) for (let c = 0; c < 5; c += 1) T(c === 0 ? ['North', 'South', 'East', 'West', 'Central', 'Coastal', 'Metro', 'Rural', 'Islands', 'Total'][r - 1] : String(1200 + ((r * 37 + c * 91) % 800)), cx + c * colW + 10, cy + 14 + r * 30, { mono: c > 0, size: 13, color: r === 10 ? C.t1 : C.t2 });
+    }
+  }
+  ctx.restore();
+}
+function scene3(t) {
+  ctx.fillStyle = C.well; ctx.fillRect(0, 0, W, H);
+  const wg = ctx.createRadialGradient(W * 0.3, H * 0.2, 0, W * 0.5, H * 0.5, W * 0.8);
+  wg.addColorStop(0, '#1a1b20'); wg.addColorStop(1, C.well);
+  ctx.fillStyle = wg; ctx.fillRect(0, 0, W, H);
+  // Drag motion
+  const drag = quint(prog(t, 22.35, 24.3));
+  const DX = -430, DY = -110;
+  const cur = [1330 + DX * drag, 352 + DY * drag];
+  const zoomIn = Q(t, 16.1, 1.3), zoomOut = Q(t, 25.1, 0.85);
+  const z = lerp(1, 1.35, zoomIn * (1 - zoomOut));
+  const focus = [lerp(W / 2, cur[0] - 60, zoomIn * (1 - zoomOut)), lerp(H / 2, cur[1] + 120, zoomIn * (1 - zoomOut))];
+  withCamera(focus[0], focus[1], z, () => {
+    windowFrame(150, 120, 920, 620, 'reach.ts — Code', 'code', false);
+    windowFrame(720, 200, 860, 600, 'Reach calibration — Browser', 'browser', false);
+    windowFrame(1180 + DX * drag, 312 + DY * drag, 620, 470, 'Quarterly access report.xlsx', 'sheet', true);
+    // taskbar
+    ctx.fillStyle = 'rgba(23,23,23,0.92)'; ctx.fillRect(0, H - 58, W, 58);
+    ctx.fillStyle = C.hair; ctx.fillRect(0, H - 58, W, 1);
+    for (let i = 0; i < 6; i += 1) { card(W / 2 - 150 + i * 52, H - 46, 36, 36, 9, { fill: i === 3 ? C.s4 : C.s3, shadow: false }); }
+    T('14:32', W - 60, H - 24, { mono: true, size: 14, color: C.t2, align: 'right' });
+    // Hand + gestures
+    const approach = Q(t, 17.5, 1.2) * (1 - Q(t, 19.5, 0.5) * 0.85);
+    const fist = Q(t, 20.5, 0.5) * (1 - Q(t, 24.4, 0.45));
+    const he = Q(t, 16.6, 0.9);
+    let pts = handPts({ x: 0, y: 0, s: 220, rot: -0.35 + Math.sin(t * 0.8) * 0.03, pinch: approach * (1 - fist), curl: [fist * 0.9, fist, fist, fist], thumb: fist * 0.8 });
+    pts = moveTo(pts, 8, cur[0] + 16, cur[1] + 44 + (1 - he) * 80);
+    drawHand(pts, C.em, { alpha: he * 0.95, w: 2.4, r: 4.2 });
+    // Dwell ring and charge ring
+    const dwell = prog(t, 18.75, 19.0);
+    if (t > 18.6 && t < 19.35) ringArc(cur[0], cur[1], 30, dwell, C.cob, 3);
+    const charge = prog(t, 21.0, 22.0);
+    if (t > 20.85 && t < 22.25) ringArc(cur[0], cur[1], 34, charge, C.amb, 3);
+    aura(cur[0], cur[1], t, 19.0);
+    aura(cur[0], cur[1], t, 22.0, 1.1);
+    aura(cur[0], cur[1], t, 24.45, 0.6);
+    cursorArrow(cur[0], cur[1], 1.05);
+    // Capsule
+    const open = SS(t, 19.05) * (1 - Q(t, 25.0, 0.4));
+    let label = 'Left click · Desktop', dc = C.em;
+    if (t >= 20.9) { label = 'Hold to drag'; dc = C.amb; }
+    if (t >= 22.0) { label = 'Drag locked'; dc = C.em; }
+    if (t >= 24.45) { label = 'Released · Spreadsheet'; dc = C.em; }
+    const pulse = t >= 22.0 && t < 22.3 ? SF(t, 22.0) : 1;
+    glassPill(cur[0] + 10, cur[1] - 96, label, dc, open * (0.92 + 0.08 * pulse));
+  });
+  // HUD in screen space
+  const ue = Q(t, 16.4, 0.7) * (1 - Q(t, 25.6, 0.4));
+  if (ue > 0) { A(ue); monoTag('VISIONAURA · OS OVERLAY', W - 120, 64, { align: 'right', dot: C.em, size: 13, fill: C.glass, stroke: C.glassEdge }); A(1); }
+  caption('OS-wide click, drag, and dwell — floating natively over every Windows app.', t, 16.8);
+}
+
+/* ───────────── Scene 4 · Reach zone & teaching ───────────── */
+function scene4(t) {
+  background();
+  const partA = 1 - Q(t, 30.8, 0.7);
+  if (partA > 0) {
+    ctx.save();
+    A(partA);
+    if (partA < 1) ctx.filter = `blur(${((1 - partA) * 6).toFixed(2)}px)`;
+    ctx.translate(-(1 - partA) * 80, 0);
+    const ae = SS(t, 26.15);
+    reveal('Your comfortable reach becomes the whole screen', 140, 140, { size: 44, weight: 600 }, Q(t, 26.2, 0.8));
+    // camera well
+    const cx = 140, cy = 220, cw = 760, ch = 560;
+    A(partA * clamp(ae));
+    card(cx, cy, cw, ch, 22, { fill: C.s2 });
+    card(cx + 20, cy + 60, cw - 40, ch - 80, 14, { fill: C.well, shadow: false });
+    T('Camera', cx + 24, cy + 38, { size: 18, weight: 600 });
+    T('640 × 480', cx + cw - 24, cy + 38, { mono: true, size: 14, color: C.t3, align: 'right' });
+    const zone = { x: cx + 60, y: cy + 250, w: 320, h: 228 };
+    const ze = Q(t, 26.6, 0.8);
+    ctx.setLineDash([7, 7]); ctx.strokeStyle = C.cob; ctx.lineWidth = 1.6;
+    A(partA * ze); rr(zone.x, zone.y, zone.w, zone.h, 10); ctx.stroke(); ctx.setLineDash([]);
+    A(partA * ze * 0.08); ctx.fillStyle = C.cob; rr(zone.x, zone.y, zone.w, zone.h, 10); ctx.fill();
+    A(partA * ze); T('Comfort zone · 18% of frame', zone.x, zone.y - 14, { mono: true, size: 13, color: C.cob });
+    // hand in zone
+    const lt = t - 26;
+    const u = 0.5 + 0.42 * Math.sin(lt * 1.35), v = 0.5 + 0.4 * Math.sin(lt * 1.9 + 0.8);
+    const tip = [zone.x + zone.w * u, zone.y + zone.h * v];
+    let pts = handPts({ x: 0, y: 0, s: 92, rot: -0.2 + 0.05 * Math.sin(lt), curl: [0, 0.55, 0.75, 0.8], thumb: 0.4 });
+    pts = moveTo(pts, 8, tip[0], tip[1]);
+    ctx.save(); rr(cx + 20, cy + 60, cw - 40, ch - 80, 14); ctx.clip();
+    drawHand(pts, C.em, { alpha: partA * ze, w: 2, r: 3.4 });
+    ctx.restore();
+    // monitor
+    const mx = 1010, my = 240, mw = 770, mh = 433;
+    const me = SS(t, 26.45);
+    A(partA * clamp(me));
+    card(mx - 16, my - 16, mw + 32, mh + 32, 22, { fill: C.s2 });
+    card(mx, my, mw, mh, 10, { fill: C.well, shadow: false });
+    ctx.fillStyle = C.s3; ctx.fillRect(mx + mw / 2 - 60, my + mh + 16, 120, 30);
+    card(mx + mw / 2 - 160, my + mh + 44, 320, 10, 5, { fill: C.s3, shadow: false });
+    T('1920 × 1080 · Full display', mx, my + mh + 100, { mono: true, size: 14, color: C.t3 });
+    // projection lines
+    const pe = Q(t, 27.1, 1.3);
+    A(partA * 0.4);
+    ctx.strokeStyle = C.cob; ctx.lineWidth = 1.2;
+    [[zone.x, zone.y, mx, my], [zone.x + zone.w, zone.y, mx + mw, my], [zone.x, zone.y + zone.h, mx, my + mh], [zone.x + zone.w, zone.y + zone.h, mx + mw, my + mh]].forEach(([x1, y1, x2, y2]) => {
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(lerp(x1, x2, pe), lerp(y1, y2, pe)); ctx.stroke();
+    });
+    // mapped cursor + trail
+    if (pe > 0.6) {
+      const map = (uu, vv) => [mx + mw * uu, my + mh * vv];
+      A(partA * 0.5);
+      ctx.strokeStyle = C.cob; ctx.lineWidth = 2; ctx.beginPath();
+      for (let i = 0; i <= 40; i += 1) {
+        const tt = lt - 1.2 + (1.2 * i) / 40;
+        const [qx, qy] = map(0.5 + 0.42 * Math.sin(tt * 1.35), 0.5 + 0.4 * Math.sin(tt * 1.9 + 0.8));
+        i ? ctx.lineTo(qx, qy) : ctx.moveTo(qx, qy);
+      }
+      ctx.stroke();
+      A(partA);
+      const [qx, qy] = map(u, v);
+      cursorArrow(qx, qy, 1);
+      T(`x ${String(Math.round(u * 1920)).padStart(4, ' ')}   y ${String(Math.round(v * 1080)).padStart(4, ' ')}`, mx + mw, my + mh + 100, { mono: true, size: 14, color: C.t2, align: 'right' });
+    }
+    const done = SS(t, 29.8);
+    if (done > 0) { A(partA * clamp(done)); glassPill(cx + cw / 2, cy + ch + 34, 'Reach calibrated · saved on this PC', C.em, done, { size: 18, h: 42 }); }
+    ctx.restore(); A(1);
+  }
+  // Part B
+  const be = SS(t, 31.0);
+  if (t >= 30.9) {
+    ctx.save();
+    A(clamp(be));
+    ctx.translate(0, (1 - be) * 40);
+    const x = 300, y = 140, w = 1320, h = 760;
+    card(x, y, w, h, 26, { fill: C.s2, blur: 70, oy: 30 });
+    T('Teach Custom Gesture', x + 44, y + 70, { size: 38, weight: 600 });
+    T('Hold any shape that is comfortable. HandTap learns it on this device.', x + 44, y + 108, { size: 18, color: C.t2 });
+    monoTag('KNN CLASSIFIER · LOCAL', x + w - 44, y + 46, { align: 'right', dot: C.em, size: 13 });
+    // preview well
+    const px = x + 44, py = y + 150, pw = 560, ph = 560;
+    card(px, py, pw, ph, 18, { fill: C.well, shadow: false });
+    const lt = t - 31;
+    const capture = prog(t, 32.0, 33.5);
+    let pts = handPts({ x: px + pw / 2 + 20, y: py + ph - 70, s: 230, rot: 0.06 * Math.sin(lt * 1.2), curl: [0, 0.95, 0.95, 0], thumb: 0.15, spread: 1.25 });
+    gravityField({ x: px + 14, y: py + 14, w: pw - 28, h: ph - 28 }, pts, 0.55, 30);
+    drawHand(pts, C.em, { w: 2.6 });
+    if (capture > 0 && capture < 1) {
+      const k = Math.floor(capture * 24);
+      pts.forEach(([qx, qy], i) => { if ((i + k) % 5 === 0) { A(0.8); ctx.beginPath(); ctx.arc(qx, qy, 10, 0, Math.PI * 2); ctx.strokeStyle = C.em2; ctx.lineWidth = 1.4; ctx.stroke(); } });
+      A(clamp(be));
+    }
+    T('Index + pinky', px + 20, py + 34, { mono: true, size: 13, color: C.t3 });
+    // vectors grid
+    const rx = x + 660, ry = y + 170;
+    const count = Math.round(capture * 24);
+    T('LANDMARK VECTORS', rx, ry, { mono: true, size: 13, color: C.t3 });
+    T(`${String(count).padStart(2, '0')} / 24`, rx + 600, ry, { mono: true, size: 16, weight: 500, align: 'right', color: count === 24 ? C.em2 : C.t1 });
+    for (let i = 0; i < 24; i += 1) {
+      const gx = rx + (i % 8) * 76, gy = ry + 24 + Math.floor(i / 8) * 76;
+      const filled = i < count;
+      const pop = filled ? SF(t, 32.0 + (i / 24) * 1.5) : 0;
+      card(gx, gy, 64, 64, 12, { fill: filled ? C.emSoft : C.s3, stroke: filled ? 'rgba(76,195,138,0.45)' : C.hair, shadow: false });
+      if (filled) {
+        ctx.save(); ctx.translate(gx + 32, gy + 32); ctx.scale(pop, pop);
+        ctx.strokeStyle = C.em2; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.beginPath();
+        const a = (i * 2.399) % (Math.PI * 2);
+        ctx.moveTo(-Math.cos(a) * 14, -Math.sin(a) * 14); ctx.lineTo(Math.cos(a) * 14, Math.sin(a) * 14); ctx.stroke();
+        ctx.restore();
+      }
+    }
+    // DualLayerButton
+    const bx = rx, by = y + 450, bw = 600, bh = 68;
+    card(bx, by, bw, bh, 16, { fill: C.s3, stroke: C.ring, shadow: false });
+    const saved = SM(t, 33.55);
+    const labelBase = 'Hold pose · 1.5s';
+    T(labelBase, bx + bw / 2, by + bh / 2 + 1, { size: 20, weight: 600, align: 'center', base: 'middle', color: C.t1 });
+    const fillW = bw * capture;
+    if (fillW > 0) {
+      ctx.save(); rr(bx, by, bw, bh, 16); ctx.clip();
+      ctx.fillStyle = C.em; ctx.fillRect(bx, by, fillW, bh);
+      ctx.beginPath(); ctx.rect(bx, by, fillW, bh); ctx.clip();
+      A(clamp(be) * (1 - saved));
+      T(labelBase, bx + bw / 2, by + bh / 2 + 1, { size: 20, weight: 600, align: 'center', base: 'middle', color: C.well });
+      A(clamp(be) * saved);
+      // check morph
+      const ce = Q(t, 33.55, 0.45);
+      const cx0 = bx + bw / 2 - 100;
+      ctx.strokeStyle = C.well; ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.arc(cx0, by + bh / 2, 14, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * ce); ctx.stroke();
+      const ck = Q(t, 33.75, 0.35);
+      if (ck > 0) {
+        ctx.beginPath(); ctx.moveTo(cx0 - 6, by + bh / 2);
+        const p1 = [cx0 - 1.5, by + bh / 2 + 5], p2 = [cx0 + 7, by + bh / 2 - 5];
+        if (ck < 0.4) ctx.lineTo(lerp(cx0 - 6, p1[0], ck / 0.4), lerp(by + bh / 2, p1[1], ck / 0.4));
+        else { ctx.lineTo(...p1); ctx.lineTo(lerp(p1[0], p2[0], (ck - 0.4) / 0.6), lerp(p1[1], p2[1], (ck - 0.4) / 0.6)); }
+        ctx.stroke();
+      }
+      T('Saved locally', cx0 + 30, by + bh / 2 + 1, { size: 20, weight: 600, base: 'middle', color: C.well });
+      ctx.restore(); A(clamp(be));
+    }
+    // binding row
+    const bind = SS(t, 34.3);
+    if (bind > 0) {
+      ctx.save(); A(clamp(be) * clamp(bind)); ctx.translate(0, (1 - bind) * 14);
+      card(bx, by + 96, bw, 74, 16, { fill: C.s2, stroke: C.hair, shadow: false });
+      dot(bx + 28, by + 133, 5, C.em);
+      T('Your gesture', bx + 46, by + 139, { size: 18, weight: 500, color: C.t2 });
+      T('→', bx + 200, by + 139, { size: 18, color: C.t3 });
+      T('Bound to', bx + 236, by + 139, { size: 18, color: C.t2 });
+      monoTag('Double Click', bx + bw - 24, by + 118, { align: 'right', size: 15, fill: C.s4, color: C.t1, stroke: 'rgba(76,195,138,0.45)' });
+      ctx.restore(); A(clamp(be));
+    }
+    T('24 frames · 1.5 seconds · nothing leaves this computer', rx, y + h - 44, { size: 15, color: C.t3 });
+    ctx.restore(); A(1);
+  }
+}
+
+/* ───────────── Scene 5 · Two-hand typing & shortcut matrix ───────────── */
+const DIGITS = [
+  { d: '4', at: 38.6, curl: [0, 0, 0, 0], thumb: 1 },
+  { d: '0', at: 40.1, curl: [1, 1, 1, 0], thumb: 1 },
+  { d: '9', at: 41.6, curl: [1, 1, 1, 0], thumb: 0 },
+  { d: '2', at: 43.1, curl: [0, 0, 1, 1], thumb: 1 },
+];
+const ROWS = [
+  { g: 'Index + Thumb Pinch', a: 'Left Click', cat: 0 },
+  { g: 'Fist hold', a: 'Drag', cat: 0 },
+  { g: 'Left Wink', a: 'Right Click', cat: 1 },
+  { g: 'Mouth Open', a: 'Enter', cat: 1 },
+  { g: 'Blink hold', a: 'Space', cat: 1 },
+  { g: 'Head Pitch Proportional', a: 'Scroll', cat: 2 },
+];
+const HOVER = [[36, 0], [37.4, 0], [38.6, 2], [39.8, 3], [41.0, 4], [42.4, 5]];
+function scene5(t) {
+  background();
+  const push = lerp(1.02, 1, Q(t, 36, 1.2));
+  withCamera(W / 2, H / 2, push, () => {
+    // Left stage
+    const le = SS(t, 36.1);
+    ctx.save(); A(clamp(le)); ctx.translate(0, (1 - le) * 30);
+    const lx = 100, ly = 120, lw = 840, lh = 820;
+    card(lx, ly, lw, lh, 26, { fill: C.s2 });
+    T('Two-hand mode', lx + 36, ly + 60, { size: 30, weight: 600 });
+    T('The cursor hand holds still. The other hand types.', lx + 36, ly + 94, { size: 17, color: C.t2 });
+    const wx = lx + 30, wy = ly + 130, ww = lw - 60, wh = 470;
+    card(wx, wy, ww, wh, 16, { fill: C.well, shadow: false });
+    ctx.save(); rr(wx, wy, ww, wh, 16); ctx.clip();
+    const lt = t - 36;
+    // primary
+    const prim = handPts({ x: wx + 220 + Math.sin(lt * 0.7) * 6, y: wy + 400 + Math.sin(lt * 0.9) * 4, s: 170, rot: -0.15, curl: [0, 0.6, 0.75, 0.8], thumb: 0.3 });
+    drawHand(prim, C.em, { w: 2.3, r: 4 });
+    ringArc(prim[8][0], prim[8][1], 16, 1, C.em, 1.6);
+    T('Cursor hand', wx + 120, wy + 40, { mono: true, size: 13, color: C.em });
+    // secondary
+    let curl = [0.85, 0.85, 0.85, 0.85], thumb = 0.8;
+    const enter = Q(t, 36.5, 1.1);
+    for (const step of DIGITS) {
+      const start = step.at - 1.1;
+      const shape = Q(t, start, 0.35), close = Q(t, step.at - 0.12, 0.12), reopen = Q(t, step.at + 0.15, 0.25);
+      if (t >= start - 0.01) {
+        const c = step.curl.map((v) => lerp(0.85, v, shape));
+        const th = lerp(0.8, step.thumb, shape);
+        const closed = close * (1 - reopen);
+        curl = c.map((v) => lerp(v, 1, closed));
+        thumb = lerp(th, 0.9, closed);
+        if (reopen >= 1) { curl = [0.85, 0.85, 0.85, 0.85]; thumb = 0.8; }
+      }
+    }
+    const sec = handPts({ x: wx + lerp(ww + 200, 560, enter) + Math.sin(lt * 0.8) * 5, y: wy + 410, s: 165, rot: 0.12, curl, thumb, mir: -1 });
+    drawHand(sec, C.sky, { w: 2.3, r: 4 });
+    T('Typing hand', wx + ww - 40, wy + 40, { mono: true, size: 13, color: C.sky, align: 'right' });
+    ctx.restore();
+    // input field
+    const fx = wx, fy = wy + wh + 30, fw = ww, fh = 150;
+    T('PIN', fx, fy + 6, { mono: true, size: 13, color: C.t3 });
+    card(fx, fy + 20, fw, fh - 20, 16, { fill: C.s3, stroke: C.ring, shadow: false });
+    let typedX = fx + 34;
+    DIGITS.forEach((step) => {
+      if (t < step.at) return;
+      const p = SPOP(t, step.at);
+      ctx.save(); ctx.translate(typedX + 18, fy + 92); ctx.scale(lerp(0.5, 1, p), lerp(0.5, 1, p));
+      A(clamp(le) * clamp(p * 1.5));
+      T(step.d, 0, 0, { mono: true, size: 52, weight: 500, align: 'center', base: 'middle' });
+      ctx.restore(); A(clamp(le));
+      typedX += 50;
+    });
+    if (Math.floor(t * 2) % 2 === 0) { ctx.fillStyle = C.em; ctx.fillRect(typedX + 4, fy + 66, 2.5, 52); }
+    T('Typed into the focused Windows field', fx + fw - 30, fy + 99, { size: 15, color: C.t3, align: 'right' });
+    ctx.restore(); A(1);
+
+    // Right stage
+    const re = SS(t, 36.4);
+    ctx.save(); A(clamp(re)); ctx.translate(0, (1 - re) * 30);
+    const rx = 980, ry = 120, rw = 840, rh = 820;
+    card(rx, ry, rw, rh, 26, { fill: C.s2 });
+    T('Shortcut matrix', rx + 36, ry + 60, { size: 30, weight: 600 });
+    monoTag('19 CONTROLS', rx + rw - 36, ry + 38, { align: 'right', size: 13, dot: C.em });
+    const hoverRow = springSteps(t, HOVER, SM);
+    const activeRow = HOVER.reduce((acc, [tt, r]) => (t >= tt ? r : acc), 0);
+    const catPos = springSteps(t, HOVER.map(([tt, r]) => [tt, ROWS[r].cat]), SM);
+    slidingPill(rx + 36, ry + 92, ['Hand', 'Face', 'Head', 'Swipes'], catPos, { segW: 120 });
+    const listY = ry + 170, rowH = 74;
+    // proximity highlight
+    card(rx + 24, listY + hoverRow * rowH, rw - 48, rowH - 8, 14, { fill: C.s3, stroke: C.ring, shadow: false });
+    ROWS.forEach((row, i) => {
+      const y = listY + i * rowH;
+      const on = i === activeRow;
+      T(row.g, rx + 48, y + rowH / 2 - 3, { size: 19, weight: 500, base: 'middle', color: on ? C.t1 : C.t2 });
+      T(['HAND', 'FACE', 'HEAD'][row.cat], rx + 420, y + rowH / 2 - 3, { mono: true, size: 12, base: 'middle', color: C.t3 });
+      const fired = on ? SF(t, HOVER.find(([, r]) => r === i)?.[0] ?? 0) : 0;
+      monoTag(row.a, rx + rw - 48, y + rowH / 2 - 21, { align: 'right', size: 14, fill: on ? C.s4 : C.s1, color: on ? C.t1 : C.t2, stroke: on ? `rgba(76,195,138,${0.2 + 0.35 * fired})` : C.hair, h: 36 });
+    });
+    // head pitch demo
+    const dy = listY + ROWS.length * rowH + 14;
+    const live = Q(t, 42.4, 0.4);
+    A(clamp(re) * lerp(0.4, 1, live));
+    card(rx + 24, dy, rw - 48, 180, 16, { fill: C.well, stroke: C.hair, shadow: false });
+    const pitch = live * (Math.sin((t - 42.4) * 1.1) * 0.75 + 0.15);
+    const gcx = rx + 140, gcy = dy + 130;
+    ctx.strokeStyle = C.s4; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(gcx, gcy, 70, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+    ctx.strokeStyle = C.cob; ctx.beginPath();
+    const mid = Math.PI * 1.5, ang = mid + pitch * 0.4 * Math.PI;
+    ctx.arc(gcx, gcy, 70, Math.min(mid, ang), Math.max(mid, ang)); ctx.stroke();
+    ctx.strokeStyle = C.t1; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(gcx, gcy); ctx.lineTo(gcx + Math.cos(ang) * 58, gcy + Math.sin(ang) * 58); ctx.stroke();
+    dot(gcx, gcy, 4, C.t1);
+    T(`${(pitch * 18).toFixed(1)}°`, gcx, gcy + 32, { mono: true, size: 14, align: 'center', color: C.t2 });
+    T('HEAD PITCH', rx + 52, dy + 34, { mono: true, size: 12, color: C.t3 });
+    // document + scrollbar
+    const docX = rx + 300, docY = dy + 22, docW = rw - 380, docH = 136;
+    ctx.save(); rr(docX, docY, docW, docH, 10); ctx.clip();
+    ctx.fillStyle = C.s1; ctx.fillRect(docX, docY, docW, docH);
+    let scroll = 0;
+    const steps = 90;
+    for (let i = 0; i < steps; i += 1) { const tt = 42.4 + ((t - 42.4) * i) / steps; scroll += Q(tt, 42.4, 0.4) * (Math.sin((tt - 42.4) * 1.1) * 0.75 + 0.15) * Math.max(0, t - 42.4) / steps * 120; }
+    for (let i = 0; i < 18; i += 1) {
+      const ly2 = docY + 20 + i * 22 - (scroll % 22) - 0;
+      A(clamp(re) * lerp(0.4, 1, live) * 0.5); ctx.fillStyle = i % 5 === 0 ? C.t2 : C.t3;
+      rr(docX + 20, ly2, (docW - 70) * (i % 4 === 3 ? 0.55 : 0.9), 9, 4.5); ctx.fill();
+    }
+    ctx.restore(); A(clamp(re) * lerp(0.4, 1, live));
+    const track = docH - 20, thumbH = 40;
+    const thumbY = docY + 10 + ((scroll / 400) % 1 + 1) % 1 * (track - thumbH);
+    ctx.fillStyle = C.s3; rr(docX + docW - 18, docY + 10, 6, track, 3); ctx.fill();
+    ctx.fillStyle = C.cob; rr(docX + docW - 18, thumbY, 6, thumbH, 3); ctx.fill();
+    ctx.restore(); A(1);
+  });
+}
+
+/* ───────────── Scene 6 · Telemetry, theme morph & lockup ───────────── */
+function appShell(t, th, radius, shapePos, themePos) {
+  const light = th === LIGHT;
+  const x = 120, y = 100, w = 1680, h = 860;
+  card(x, y, w, h, radius + 6, { fill: th.s1, stroke: th.ring, shadowColor: th.shadow, rimColor: th.rim, light });
+  // top bar
+  logoMark(x + 50, y + 48, 40, th);
+  T('HandTap', x + 82, y + 56, { size: 22, weight: 600, color: th.t1 });
+  const telem = telemetryText(t);
+  const tw = TW(telem, { mono: true, size: 16, weight: 500 }) + 60;
+  const tx = x + w / 2 - tw / 2;
+  card(tx, y + 26, tw, 44, 22, { fill: light ? '#ffffff' : C.s4, stroke: th.ring, shadow: false, rimColor: th.rim, light });
+  const blink = 0.55 + 0.45 * Math.sin(t * 5);
+  ctx.save(); ctx.globalAlpha *= blink; dot(tx + 24, y + 48, 4.5, C.em); ctx.restore();
+  T(telem, tx + 40, y + 49, { mono: true, size: 16, weight: 500, base: 'middle', color: th.t1 });
+  slidingPill(x + w - 40 - 2 * 88 - 8, y + 26, ['Dark', 'Light'], themePos, { segW: 88, h: 44, fill: th.s3, stroke: th.hair, active: light ? '#ffffff' : C.s4, ring: th.ring, on: th.t1, off: th.t3, rimColor: th.rim });
+  // modules
+  const gy = y + 110, gh = h - 140, gap = 24;
+  const cw = (w - 80 - gap * 2) / 3;
+  const mods = [0, 1, 2].map((i) => ({ x: x + 40 + i * (cw + gap), y: gy, w: cw, h: gh }));
+  mods.forEach((m) => card(m.x, m.y, m.w, m.h, radius, { fill: th.s2, stroke: th.hair, shadowColor: th.shadow, blur: 30, oy: 12, rimColor: th.rim, light }));
+  // module 1: field
+  const m1 = mods[0];
+  T('Gravity field', m1.x + 28, m1.y + 46, { size: 20, weight: 600, color: th.t1 });
+  ctx.save(); rr(m1.x + 20, m1.y + 70, m1.w - 40, m1.h - 90, Math.max(2, radius - 6)); ctx.clip();
+  ctx.fillStyle = light ? '#f2f2f4' : C.well; ctx.fillRect(m1.x + 20, m1.y + 70, m1.w - 40, m1.h - 90);
+  const hp = handPts({ x: m1.x + m1.w / 2 + Math.sin(t * 0.6) * 40, y: m1.y + m1.h - 90, s: 190, rot: Math.sin(t * 0.5) * 0.1, curl: [0.05, 0.1, 0.2, 0.25] });
+  gravityField({ x: m1.x + 30, y: m1.y + 80, w: m1.w - 60, h: m1.h - 110 }, hp, light ? 0.8 : 1, 30);
+  drawHand(hp, C.em, { w: 2.2, r: 3.8 });
+  ctx.restore();
+  // module 2: typing
+  const m2 = mods[1];
+  T('Number typing', m2.x + 28, m2.y + 46, { size: 20, weight: 600, color: th.t1 });
+  ctx.strokeStyle = C.em; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.arc(m2.x + m2.w / 2, m2.y + 230, 80, 0, Math.PI * 2); ctx.stroke();
+  T('2', m2.x + m2.w / 2, m2.y + 232, { mono: true, size: 72, weight: 500, align: 'center', base: 'middle', color: th.t1 });
+  T('Your shape, 96% match', m2.x + m2.w / 2, m2.y + 360, { size: 17, align: 'center', color: th.t2 });
+  card(m2.x + 28, m2.y + 410, m2.w - 56, 96, Math.max(2, radius - 4), { fill: th.s3, stroke: th.ring, shadow: false, rimColor: th.rim });
+  T('4092', m2.x + 56, m2.y + 470, { mono: true, size: 40, weight: 500, color: th.t1 });
+  slidingPill(m2.x + 28, m2.y + m2.h - 80, ['Rounded', 'Pill', 'Sharp'], shapePos, { segW: (m2.w - 64) / 3, h: 46, fill: th.s3, stroke: th.hair, active: light ? '#ffffff' : C.s4, ring: th.ring, on: th.t1, off: th.t3, rimColor: th.rim });
+  // module 3: matrix
+  const m3 = mods[2];
+  T('Shortcuts', m3.x + 28, m3.y + 46, { size: 20, weight: 600, color: th.t1 });
+  ROWS.slice(0, 6).forEach((row, i) => {
+    const ry = m3.y + 80 + i * 74;
+    card(m3.x + 20, ry, m3.w - 40, 62, Math.max(2, radius - 6), { fill: i === 0 ? th.s3 : th.s2, stroke: th.hair, shadow: false, rim: false });
+    T(row.g, m3.x + 40, ry + 36, { size: 16, weight: 500, color: th.t1 });
+    T(row.a, m3.x + m3.w - 40, ry + 36, { mono: true, size: 13, align: 'right', color: th.t2 });
+  });
+  return { tx, ty: y + 26, tw, th: 44 };
+}
+function telemetryText(t) {
+  const ms = ['8.2', '8.1', '8.3', '8.2', '8.4', '8.2'][Math.floor(t * 5) % 6];
+  return `60 FPS  ·  ${ms} ms  ·  WebAssembly GPU  ·  100% On-Device (Zero Cloud Video)`;
+}
+function scene6(t) {
+  background();
+  const shellOut = Q(t, 51.9, 0.55);
+  if (shellOut < 1) {
+    const pull = lerp(1.1, 1, SS(t, 47.0));
+    const macroIn = Q(t, 47.7, 0.8) * (1 - Q(t, 49.6, 0.6));
+    const z = pull * lerp(1, 1.85, macroIn);
+    const fy = lerp(H / 2, 148, macroIn);
+    const radius = springSteps(t, [[0, 18], [50.75, 30], [51.05, 3], [51.6, 18]], SM);
+    const shapePos = springSteps(t, [[0, 0], [50.75, 1], [51.05, 2], [51.6, 0]], SM);
+    ctx.save();
+    A(1 - shellOut);
+    if (shellOut > 0) ctx.filter = `blur(${(shellOut * 8).toFixed(2)}px)`;
+    withCamera(W / 2, fy, z, () => {
+      appShell(t, DARK, radius, shapePos, 0);
+      const wipeIn = Q(t, 50.05, 0.6), wipeOut = Q(t, 51.45, 0.5);
+      const edge = W * wipeIn * (1 - wipeOut);
+      if (edge > 1) {
+        ctx.save(); ctx.beginPath(); ctx.rect(-W, -H, edge + W, H * 3); ctx.clip();
+        ctx.fillStyle = LIGHT.bg; ctx.fillRect(-W, -H, W * 3, H * 3);
+        appShell(t, LIGHT, radius, shapePos, 1);
+        ctx.restore();
+        ctx.fillStyle = 'rgba(242,244,248,0.6)'; ctx.fillRect(edge - 1, -H, 1.5, H * 3);
+      }
+    });
+    ctx.restore(); A(1);
+  }
+  // Lockup
+  if (t >= 52.0) {
+    const e1 = SS(t, 52.15), e2 = Q(t, 52.5, 0.8), e3 = SS(t, 52.85);
+    const wordW = TW('HandTap', { size: 84, weight: 600 });
+    const total = 88 + 26 + wordW;
+    const lx = W / 2 - total / 2;
+    ctx.save(); A(clamp(e1)); ctx.translate(0, (1 - e1) * 18);
+    logoMark(lx + 44, 430, 88);
+    T('HandTap', lx + 88 + 26, 430 + 30, { size: 84, weight: 600 });
+    ctx.restore(); A(1);
+    reveal('Spatial desktop access. Built around every body.', W / 2, 580, { size: 46, weight: 500, align: 'center', color: C.t1 }, e2);
+    if (e3 > 0) {
+      const label = '100% Local MediaPipe GPU  ·  Windows Desktop  ·  Open Accessibility';
+      const bw = TW(label, { mono: true, size: 17, weight: 500 }) + 48, bh = 46;
+      const bx = W / 2 - bw / 2, by = 640;
+      A(clamp(e3));
+      card(bx, by, bw, bh, bh / 2, { fill: C.s3, stroke: C.ring, shadow: false });
+      T(label, W / 2, by + bh / 2 + 1, { mono: true, size: 17, weight: 500, align: 'center', base: 'middle', color: C.t2 });
+      // specular sweep along the 1px top border
+      const sw = prog(t, 53.3, 54.1);
+      if (sw > 0 && sw < 1) {
+        const sx = bx + bw * quint(sw);
+        const g = ctx.createLinearGradient(sx - 90, 0, sx + 90, 0);
+        g.addColorStop(0, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.85)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.save(); rr(bx, by, bw, bh, bh / 2); ctx.clip();
+        ctx.strokeStyle = g; ctx.lineWidth = 1.5; rr(bx + 0.75, by + 0.75, bw - 1.5, bh, bh / 2); ctx.stroke();
+        ctx.restore();
+      }
+      A(1);
+    }
+  }
+}
+
+/* ───────────── Master timeline ───────────── */
+const SCENES = [[0, 7, scene1], [7, 16, scene2], [16, 26, scene3], [26, 36, scene4], [36, 47, scene5], [47, 55, scene6]];
+const XF = 0.22;
+function render(canvas, t) {
+  ctx = canvas.getContext('2d');
+  const k = canvas.width / W;
+  ctx.setTransform(k, 0, 0, k, 0, 0);
+  ctx.globalAlpha = 1; ctx.filter = 'none';
+  ctx.fillStyle = C.chassis; ctx.fillRect(0, 0, W, H);
+  SCENES.forEach(([a, b, fn], i) => {
+    const from = i === 0 ? -1 : a - XF, to = i === SCENES.length - 1 ? DURATION + 1 : b + XF;
+    if (t < from || t > to) return;
+    SA = i === 0 ? 1 : clamp((t - (a - XF)) / (XF * 2));
+    ctx.save(); ctx.globalAlpha = SA; fn(t); ctx.restore();
+  });
+  SA = 1;
+}
+
+/* ───────────── Sound design ───────────── */
+const CUES = [
+  [0.4, 'tick'], [3.3, 'tick'], [5.2, 'lock'], [6.35, 'swish'], [11.5, 'click'],
+  [19.0, 'click'], [19.0, 'shimmer'], [22.0, 'click'], [22.0, 'shimmer'], [24.45, 'tick'],
+  [29.8, 'chime'], [32.0, 'tick'], [33.55, 'chime'], [34.3, 'tick'],
+  [38.6, 'key'], [40.1, 'key'], [41.6, 'key'], [43.1, 'key'], [37.4, 'tick'], [38.6, 'tick'], [39.8, 'tick'], [41.0, 'tick'], [42.4, 'tick'],
+  [50.05, 'swish'], [50.75, 'click'], [51.05, 'click'], [51.45, 'swish'], [52.15, 'lock'], [53.3, 'shimmer'],
+];
+function createAudio() {
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
+  const noise = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
+  const ch = noise.getChannelData(0);
+  for (let i = 0; i < ch.length; i += 1) ch[i] = Math.random() * 2 - 1;
+  const env = (g, peak, attack, decay, at) => { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + attack); g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay); };
+  const sine = (f, peak, decay, at, f2) => { const o = ac.createOscillator(); const g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(f, at); if (f2) o.frequency.exponentialRampToValueAtTime(f2, at + decay); env(g, peak, 0.004, decay, at); o.connect(g).connect(master); o.start(at); o.stop(at + decay + 0.05); };
+  const burst = (type, f, q, peak, decay, at, f2) => { const s = ac.createBufferSource(); s.buffer = noise; const b = ac.createBiquadFilter(); b.type = type; b.frequency.setValueAtTime(f, at); if (f2) b.frequency.exponentialRampToValueAtTime(f2, at + decay); b.Q.value = q; const g = ac.createGain(); env(g, peak, 0.004, decay, at); s.connect(b).connect(g).connect(master); s.start(at); s.stop(at + decay + 0.05); };
+  return {
+    ac,
+    play(kind) {
+      const at = ac.currentTime + 0.005;
+      if (kind === 'tick') { burst('bandpass', 4200, 6, 0.018, 0.022, at); sine(2600, 0.008, 0.03, at, 1800); }
+      if (kind === 'click') { burst('bandpass', 3200, 5, 0.03, 0.03, at); sine(1900, 0.018, 0.05, at, 900); }
+      if (kind === 'key') { burst('bandpass', 2400, 4, 0.03, 0.035, at); sine(1200, 0.012, 0.05, at, 700); }
+      if (kind === 'lock') { sine(660, 0.02, 0.9, at); sine(990, 0.01, 0.7, at + 0.02); burst('bandpass', 3000, 5, 0.012, 0.03, at); }
+      if (kind === 'chime') { sine(880, 0.018, 1.1, at); sine(1320, 0.01, 0.9, at + 0.06); sine(1760, 0.005, 0.7, at + 0.1); }
+      if (kind === 'shimmer') { sine(2400, 0.006, 0.5, at, 3200); sine(3100, 0.004, 0.45, at + 0.03, 4000); }
+      if (kind === 'swish') { burst('lowpass', 500, 0.8, 0.012, 0.35, at, 3200); }
+    },
+  };
+}
+
+/* ───────────── Player (React) ───────────── */
+const h = React.createElement;
+const Icon = {
+  play: h('svg', { viewBox: '0 0 16 16', fill: 'currentColor' }, h('path', { d: 'M4.5 2.8v10.4c0 .5.5.8.9.5l8-5.2a.6.6 0 0 0 0-1L5.4 2.3c-.4-.3-.9 0-.9.5Z' })),
+  pause: h('svg', { viewBox: '0 0 16 16', fill: 'currentColor' }, h('rect', { x: 3.5, y: 2.5, width: 3, height: 11, rx: 1 }), h('rect', { x: 9.5, y: 2.5, width: 3, height: 11, rx: 1 })),
+  restart: h('svg', { viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' }, h('path', { d: 'M3 8a5 5 0 1 0 1.6-3.7' }), h('path', { d: 'M3 2.5v3h3' })),
+  soundOn: h('svg', { viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d: 'M2.5 6v4h2.5l3.5 3V3L5 6Z' }), h('path', { d: 'M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.8a6 6 0 0 1 0 8.4' })),
+  soundOff: h('svg', { viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }, h('path', { d: 'M2.5 6v4h2.5l3.5 3V3L5 6Z' }), h('path', { d: 'M11 6l3.5 4M14.5 6L11 10' })),
+  full: h('svg', { viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' }, h('path', { d: 'M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10' })),
+};
+const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+
+function Player() {
+  const canvasRef = React.useRef(null);
+  const stageRef = React.useRef(null);
+  const scrubRef = React.useRef(null);
+  const timeRef = React.useRef(null);
+  const clock = React.useRef({ t: 0, playing: true, last: null, prev: 0 });
+  const audio = React.useRef(null);
+  const [playing, setPlaying] = React.useState(true);
+  const [sound, setSound] = React.useState(false);
+  const [chrome, setChrome] = React.useState(true);
+  const soundRef = React.useRef(false);
+  const hideTimer = React.useRef(null);
+
+  const draw = React.useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    render(canvas, clock.current.t);
+    if (scrubRef.current && document.activeElement !== scrubRef.current) scrubRef.current.value = clock.current.t;
+    if (timeRef.current) timeRef.current.textContent = `${fmt(clock.current.t)} / ${fmt(DURATION)}`;
+  }, []);
+
+  React.useEffect(() => {
+    const canvas = canvasRef.current;
+    const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    let raf;
+    const frame = (now) => {
+      const c = clock.current;
+      if (c.playing) {
+        if (c.last !== null) {
+          const prev = c.t;
+          c.t = Math.min(DURATION, c.t + Math.min(0.05, (now - c.last) / 1000));
+          if (soundRef.current && audio.current) CUES.forEach(([ct, kind]) => { if (prev < ct && c.t >= ct) audio.current.play(kind); });
+          if (c.t >= DURATION) { c.playing = false; setPlaying(false); showChrome(); }
+        }
+        c.last = now;
+      } else c.last = null;
+      draw();
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    if (document.fonts && document.fonts.load) Promise.all([document.fonts.load('600 64px Inter'), document.fonts.load('500 20px "JetBrains Mono"')]).then(draw).catch(() => {});
+    return () => cancelAnimationFrame(raf);
+  }, [draw]);
+
+  const showChrome = React.useCallback(() => {
+    setChrome(true);
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => { if (clock.current.playing) setChrome(false); }, 1500);
+  }, []);
+
+  const togglePlay = React.useCallback(() => {
+    const c = clock.current;
+    if (!c.playing && c.t >= DURATION) c.t = 0;
+    c.playing = !c.playing; c.last = null;
+    setPlaying(c.playing);
+    showChrome();
+  }, [showChrome]);
+  const restart = React.useCallback(() => {
+    const c = clock.current; c.t = 0; c.last = null; c.playing = true; setPlaying(true); showChrome();
+  }, [showChrome]);
+  const toggleSound = React.useCallback(() => {
+    const next = !soundRef.current;
+    soundRef.current = next; setSound(next);
+    if (next) {
+      try { if (!audio.current) audio.current = createAudio(); audio.current.ac.resume(); audio.current.play('tick'); } catch (e) { soundRef.current = false; setSound(false); }
+    }
+  }, []);
+  const fullscreen = React.useCallback(() => {
+    const el = stageRef.current;
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (el.requestFullscreen) el.requestFullscreen().then(() => setChrome(false)).catch(() => {});
+    } catch (e) { /* fullscreen is optional */ }
+  }, []);
+
+  React.useEffect(() => {
+    const onKey = (e) => {
+      if (e.target && e.target.tagName === 'INPUT' && e.key !== ' ' && e.key !== 'h' && e.key !== 'H') return;
+      if (e.key === 'h' || e.key === 'H') { clearTimeout(hideTimer.current); setChrome((v) => !v); }
+      else if (e.key === 'f' || e.key === 'F') fullscreen();
+      else if (e.key === ' ' || e.key === 'k') { e.preventDefault(); togglePlay(); }
+      else if (e.key === 'ArrowRight') { clock.current.t = Math.min(DURATION, clock.current.t + (e.shiftKey ? 1 : 1 / 60)); showChrome(); }
+      else if (e.key === 'ArrowLeft') { clock.current.t = Math.max(0, clock.current.t - (e.shiftKey ? 1 : 1 / 60)); showChrome(); }
+      else if (e.key === 'r' || e.key === 'R') restart();
+    };
+    window.addEventListener('keydown', onKey);
+    showChrome();
+    return () => window.removeEventListener('keydown', onKey);
+  }, [fullscreen, togglePlay, restart, showChrome]);
+
+  return h('div', { ref: stageRef, className: `stage ${chrome ? '' : 'cinema'}`, onMouseMove: showChrome, onTouchStart: showChrome },
+    h('canvas', { ref: canvasRef, onClick: togglePlay, 'aria-label': 'HandTap launch film', role: 'img' }),
+    h('div', { className: `hint ${chrome ? '' : 'hidden'}` }, 'SPACE play · H hide · F fullscreen · ← → step'),
+    h('div', { className: `chrome ${chrome ? '' : 'hidden'}`, role: 'group', 'aria-label': 'Film controls' },
+      h('button', { type: 'button', className: 'btn', onClick: restart, 'aria-label': 'Restart' }, Icon.restart),
+      h('button', { type: 'button', className: 'btn', onClick: togglePlay, 'aria-label': playing ? 'Pause' : 'Play' }, playing ? Icon.pause : Icon.play),
+      h('input', {
+        id: 'scrub', ref: scrubRef, className: 'scrub', type: 'range', min: 0, max: DURATION, step: 1 / 60, defaultValue: 0, 'aria-label': 'Timeline',
+        onInput: (e) => { clock.current.t = Number(e.target.value); clock.current.last = null; showChrome(); },
+      }),
+      h('span', { ref: timeRef, className: 'time' }, `00:00.0 / ${fmt(DURATION)}`),
+      h('button', { type: 'button', className: `btn ${sound ? 'on' : ''}`, onClick: toggleSound, 'aria-label': sound ? 'Mute sound' : 'Turn on sound', 'aria-pressed': sound }, sound ? Icon.soundOn : Icon.soundOff),
+      h('button', { type: 'button', className: 'btn', onClick: fullscreen, 'aria-label': 'Fullscreen' }, Icon.full),
+    ),
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('app')).render(h(Player));
+})();
+</script>
+</body>
+</html>
