@@ -31,6 +31,7 @@ import {
   headPitchStrength,
   headTilt,
   isLicking,
+  pinchProgress,
   pinchRatio,
   toScreen,
 } from './tracking.js';
@@ -237,6 +238,10 @@ function App() {
   const [typingToggle, setTypingToggle] = useState(() => loadTypingToggle(window.localStorage));
   const [soundsOn, setSoundsOn] = useState(() => loadSoundsOn(window.localStorage));
   const [armedDigit, setArmedDigit] = useState(null);
+  const [seenDigit, setSeenDigit] = useState(null);
+  const [seenTaught, setSeenTaught] = useState(false);
+  // The number typing readout, where what the AI is reading is shown as it reads it.
+  const readoutRef = useRef(null);
   const [typed, setTyped] = useState('');
   const [typedCount, setTypedCount] = useState(0);
   const [holding, setHolding] = useState(null);
@@ -417,6 +422,19 @@ function App() {
     return () => clearTimeout(timer);
   }, [modeNotice]);
 
+  // Which digit is being read changes rarely, so it goes through state. How sure the reading
+  // is changes every frame, so it goes straight to CSS variables without a React render.
+  const showReading = (reading) => {
+    setSeenDigit(reading?.seen ?? null);
+    setSeenTaught(reading?.confidence != null);
+    const readout = readoutRef.current;
+    if (!readout) return;
+    readout.style.setProperty('--certainty', reading?.certainty ?? 0);
+    readout.style.setProperty('--confidence', reading?.confidence ?? 1);
+    const value = readout.querySelector('.match-value');
+    if (value) value.textContent = reading?.confidence != null ? `${Math.round(reading.confidence * 100)}%` : '';
+  };
+
   const resetTracking = () => {
     pinchRef.current.reset();
     movementRef.current.reset();
@@ -424,6 +442,8 @@ function App() {
     toggleHoldRef.current.reset();
     controlHoldRef.current.reset();
     setArmedDigit(null);
+    showReading(null);
+    cursorRef.current?.style.setProperty('--pinch', 0);
     setHandPoint(null);
     setDwellState({ progress: 0, label: '' });
     setHolding(null);
@@ -860,8 +880,9 @@ function App() {
         poseIsToggle ||
         poseIsControlToggle ||
         Boolean(pose && bindingsRef.current[pose]);
+      const clickBlocked = typing || capturing || poseBlocksClick;
       const { pinching, justPinched } = pinchRef.current.update(
-        typing || capturing || poseBlocksClick ? Infinity : ratio,
+        clickBlocked ? Infinity : ratio,
         sensitivityRef.current,
       );
 
@@ -869,17 +890,15 @@ function App() {
       if (typing && !poseIsToggle && !capturing) {
         // When available, type from the second hand so the cursor hand remains independent.
         const digitLandmarks = otherLandmarks ?? landmarks;
-        const { digit, armed } = digitRef.current.update(
-          digitLandmarks,
-          aspect,
-          gestureModelRef.current,
-        );
-        currentArmed = armed;
-        setArmedDigit(armed);
-        if (digit !== null) typeDigit(digit);
+        const reading = digitRef.current.update(digitLandmarks, aspect, gestureModelRef.current);
+        currentArmed = reading.armed;
+        setArmedDigit(reading.armed);
+        showReading(reading);
+        if (reading.digit !== null) typeDigit(reading.digit);
       } else {
         digitRef.current.reset();
         setArmedDigit(null);
+        showReading(null);
       }
 
       // Compute continuous VisionOS dwell progress across active hold detectors
@@ -916,6 +935,11 @@ function App() {
         cursorRef.current.style.top = `${smoothed.y * 100}%`;
         cursorRef.current.classList.add('visible');
         cursorRef.current.classList.toggle('pressed', pinching);
+        // The ring closes in as the fingers approach a tap, so people can see how close they are.
+        cursorRef.current.style.setProperty(
+          '--pinch',
+          clickBlocked ? 0 : pinchProgress(ratio, sensitivityRef.current).toFixed(3),
+        );
       }
       const nextGestureLabel = capturing
         ? 'Learning your hand'
@@ -1367,6 +1391,7 @@ function App() {
                     </div>
                   )}
                   <div ref={cursorRef} className="fake-cursor" aria-hidden="true">
+                    <span className="pinch-ring" />
                     <MousePointer2 size={20} strokeWidth={1.6} />
                   </div>
                   {!cameraOn && (
@@ -1584,6 +1609,9 @@ function App() {
             isDesktop={Boolean(desktop)}
             hotkey={typingHotkey}
             armedDigit={armedDigit}
+            seenDigit={seenDigit}
+            seenTaught={seenTaught}
+            readoutRef={readoutRef}
             typed={typed}
             typedCount={typedCount}
             onClear={() => setTyped('')}

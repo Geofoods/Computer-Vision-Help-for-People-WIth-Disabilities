@@ -82,6 +82,15 @@ function statusText(typingOn, controlOn, isDesktop, toggle) {
     : `Practice mode: typing into other apps needs the HandTap desktop app.${stop}`;
 }
 
+function readingText(typingOn, armedDigit, seenDigit, seenTaught) {
+  if (!typingOn) return 'Turn on typing to start';
+  if (seenDigit !== null && seenDigit !== armedDigit) {
+    return seenTaught ? <>Your shape for {seenDigit}, <span className="match-value" /> match</> : `Reading ${seenDigit}, hold still`;
+  }
+  if (armedDigit !== null) return seenTaught ? <>Your shape, <span className="match-value" /> match. Close to type</> : 'Close your hand to type';
+  return 'Hold up a pattern';
+}
+
 export function NumberTyping({
   typingOn,
   onToggle,
@@ -90,6 +99,9 @@ export function NumberTyping({
   isDesktop,
   hotkey,
   armedDigit,
+  seenDigit = null,
+  seenTaught = false,
+  readoutRef,
   typed,
   typedCount = 0,
   onClear,
@@ -152,9 +164,17 @@ export function NumberTyping({
           </div>
         </div>
         <div className="typing-readout">
-          <div className={`armed-digit ${armedDigit !== null ? 'ready' : ''}`}>
+          <div ref={readoutRef} className={`armed-digit ${armedDigit !== null ? 'ready' : ''} ${seenDigit !== null && armedDigit === null ? 'reading' : ''}`}>
             <small>Ready to type</small>
-            <strong key={armedDigit ?? 'none'} className={armedDigit !== null ? 'digit-pop' : ''}>{armedDigit ?? '–'}</strong>
+            <div className="digit-ring">
+              {/* Fills as HandTap becomes sure of a pattern. For a taught shape, its strength is how closely the hand matches. */}
+              <svg viewBox="0 0 48 48" aria-hidden="true">
+                <circle className="ring-track" cx="24" cy="24" r="21" pathLength="1" />
+                <circle className="ring-fill" cx="24" cy="24" r="21" pathLength="1" />
+              </svg>
+              <strong key={armedDigit ?? 'none'} className={armedDigit !== null ? 'digit-pop' : ''}>{armedDigit ?? seenDigit ?? '–'}</strong>
+            </div>
+            <span className="reading-caption">{readingText(typingOn, armedDigit, seenDigit, seenTaught)}</span>
           </div>
           <div className="typed-output">
             <small>Typed</small>
