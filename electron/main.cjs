@@ -15,6 +15,9 @@ const { createMouse } = require('./mouse.cjs');
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const TOGGLE_HOTKEY = 'CommandOrControl+Alt+H';
 const TYPING_HOTKEY = 'CommandOrControl+Alt+N';
+const OVERLAY_WIDTH = 320;
+const OVERLAY_HEIGHT = 64;
+const OVERLAY_MARGIN = 20;
 
 // Hand tracking has to keep running while another app is in front, since that's
 // the app the user is trying to control.
@@ -23,6 +26,8 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding');
 
 const mouse = createMouse();
 let mainWindow = null;
+let overlayWindow = null;
+let overlayStatus = { gesture: 'Waiting for camera', mode: 'HandTap', live: false };
 let hotkeyRegistered = false;
 let typingHotkeyRegistered = false;
 
@@ -38,6 +43,71 @@ ipcMain.on('handtap:move', (_event, position) => {
 });
 ipcMain.handle('handtap:hotkey', () => (hotkeyRegistered ? 'Ctrl + Alt + H' : null));
 ipcMain.handle('handtap:typing-hotkey', () => (typingHotkeyRegistered ? 'Ctrl + Alt + N' : null));
+
+// The renderer knows the live gesture; this keeps the corner window in step.
+ipcMain.on('handtap:overlay-status', (_event, status) => {
+  if (!status || typeof status.gesture !== 'string') return;
+  overlayStatus = {
+    gesture: status.gesture.slice(0, 80),
+    mode: typeof status.mode === 'string' ? status.mode.slice(0, 80) : 'HandTap',
+    live: Boolean(status.live),
+  };
+  overlayWindow?.webContents.send('handtap:overlay-status', overlayStatus);
+});
+
+function overlayBounds() {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    x: workArea.x + OVERLAY_MARGIN,
+    y: workArea.y + workArea.height - OVERLAY_HEIGHT - OVERLAY_MARGIN,
+    width: OVERLAY_WIDTH,
+    height: OVERLAY_HEIGHT,
+  };
+}
+
+// A small always-on-top window in the screen's bottom-left corner, so the live
+// gesture stays visible while the user works in another app.
+function createOverlayWindow() {
+  if (overlayWindow) return;
+  overlayWindow = new BrowserWindow({
+    ...overlayBounds(),
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: false,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'overlay-preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  // Clicks pass straight through to whatever app is underneath.
+  overlayWindow.setIgnoreMouseEvents(true);
+  overlayWindow.setAlwaysOnTop(true, 'screen-saver');
+  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  overlayWindow.once('ready-to-show', () => overlayWindow?.showInactive());
+  overlayWindow.webContents.on('did-finish-load', () => {
+    overlayWindow?.webContents.send('handtap:overlay-status', overlayStatus);
+  });
+  overlayWindow.on('closed', () => {
+    overlayWindow = null;
+  });
+  overlayWindow.loadFile(path.join(__dirname, 'overlay.html'));
+}
+
+function positionOverlayWindow() {
+  overlayWindow?.setBounds(overlayBounds());
+}
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();
@@ -60,6 +130,8 @@ function createWindow() {
   });
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // The overlay is part of the main window's UI; don't let it keep the app alive.
+    overlayWindow?.close();
   });
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -75,6 +147,11 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  createOverlayWindow();
+  // Keep the overlay in the corner when the taskbar, resolution, or displays change.
+  screen.on('display-metrics-changed', positionOverlayWindow);
+  screen.on('display-added', positionOverlayWindow);
+  screen.on('display-removed', positionOverlayWindow);
   mouse.warmUp();
   // The keyboard way out when the hand is driving the real mouse.
   hotkeyRegistered = globalShortcut.register(TOGGLE_HOTKEY, () => {
@@ -87,7 +164,10 @@ app.whenReady().then(() => {
   });
   if (!typingHotkeyRegistered) console.warn(`Could not register ${TYPING_HOTKEY}.`);
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      createOverlayWindow();
+    }
   });
 });
 

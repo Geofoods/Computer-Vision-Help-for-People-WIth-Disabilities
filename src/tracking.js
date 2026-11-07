@@ -204,21 +204,24 @@ export function headTilt(landmarks, threshold = 0.2) {
 }
 
 /** Returns the vertical head direction, normalized by eye distance. */
-export function headPitch(landmarks, threshold = 0.35) {
+export function headPitch(landmarks, threshold = 0.24) {
   return headPitchStrength(landmarks, threshold)?.id ?? null;
 }
 
-export function headPitchStrength(landmarks, threshold = 0.35) {
+export function headPitchStrength(landmarks, threshold = 0.24) {
   const leftEye = landmarks?.[33];
   const rightEye = landmarks?.[263];
   const nose = landmarks?.[1];
   if (!leftEye || !rightEye || !nose) return null;
   const eyeDistance = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
   if (!eyeDistance) return null;
+  // In a neutral face the nose is naturally below the eye line. Measure movement
+  // away from that anatomical baseline instead of treating a normal face as down.
   const offset = (nose.y - (leftEye.y + rightEye.y) / 2) / eyeDistance;
-  const magnitude = Math.min(1, Math.max(0, (Math.abs(offset) - threshold) / 0.8));
-  if (offset < -threshold) return { id: 'headTiltUp', intensity: magnitude };
-  if (offset > threshold) return { id: 'headTiltDown', intensity: magnitude };
+  const deviation = offset - 0.5;
+  const magnitude = Math.min(1, Math.max(0, (Math.abs(deviation) - threshold) / 0.8));
+  if (deviation < -threshold) return { id: 'headTiltUp', intensity: magnitude };
+  if (deviation > threshold) return { id: 'headTiltDown', intensity: magnitude };
   return null;
 }
 

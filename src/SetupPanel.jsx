@@ -2,7 +2,7 @@ import React from 'react';
 import { Move, Rocket } from 'lucide-react';
 import { TYPING_TOGGLES } from './keybinds.js';
 
-export function SetupPanel({ cameraOn, isDesktop, reachCapturing, reachMessage, reachIsCustom, onCalibrateReach, onResetReach, autoStart, onChangeAutoStart, controlToggle, onChangeControlToggle, typingToggle }) {
+export function SetupPanel({ cameraOn, isDesktop, reachCapturing, reachMessage, reachIsCustom, onCalibrateReach, onResetReach, autoStart, onChangeAutoStart, scrollSensitivity, onChangeScrollSensitivity, controlToggle, onChangeControlToggle, typingToggle }) {
   return (
     <section className="workspace setup" aria-labelledby="setup-heading">
       <div className="section-heading">
@@ -32,9 +32,14 @@ export function SetupPanel({ cameraOn, isDesktop, reachCapturing, reachMessage, 
             <input type="checkbox" checked={autoStart} onChange={(event) => onChangeAutoStart(event.target.checked)} />
             Start the camera when HandTap opens
           </label>
+          <div className="setup-select">
+            <label htmlFor="scroll-sensitivity">Scroll sensitivity <strong>{scrollSensitivity}%</strong></label>
+            <input id="scroll-sensitivity" aria-describedby="scroll-sensitivity-help" type="range" min="10" max="100" value={scrollSensitivity} onChange={(event) => onChangeScrollSensitivity(Number(event.target.value))} />
+            <p id="scroll-sensitivity-help" className="keybind-status">Lower values make head and tongue scrolling slower and gentler.</p>
+          </div>
           {isDesktop && (
             <div className="setup-select">
-              <label htmlFor="control-toggle">Turn mouse control on and off with</label>
+              <label htmlFor="control-toggle">Turn mouse control on with (hold for 1 second)</label>
               <select id="control-toggle" value={controlToggle} onChange={(event) => onChangeControlToggle(event.target.value)}>
                 {TYPING_TOGGLES.filter(({ id }) => id !== typingToggle).map(({ id, label }) => <option key={id} value={id}>{label}</option>)}
                 <option value="">No movement</option>

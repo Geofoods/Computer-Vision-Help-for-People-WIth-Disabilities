@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('handtapDesktop', {
   pressKeys: (combo) => ipcRenderer.invoke('handtap:press-keys', combo),
   getHotkey: () => ipcRenderer.invoke('handtap:hotkey'),
   getTypingHotkey: () => ipcRenderer.invoke('handtap:typing-hotkey'),
+  setOverlayStatus: (status) => ipcRenderer.send('handtap:overlay-status', status),
   onToggleTyping: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('handtap:toggle-typing', listener);
