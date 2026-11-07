@@ -3,6 +3,12 @@ import { Keyboard } from 'lucide-react';
 import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, isPreset } from './keybinds.js';
 
 const FLASH_MS = 1200;
+const MOVEMENT_GROUPS = [
+  { label: 'Hand gestures', hint: 'Use your fingers and hand position.', ids: ['indexTap', 'middleTap', 'ringTap', 'fist'] },
+  { label: 'Face gestures', hint: 'Use your eyes, mouth, and cheeks.', ids: ['blink', 'winkLeft', 'winkRight', 'kiss', 'cheekPuff', 'mouthOpen', 'tongueLick'] },
+  { label: 'Head gestures', hint: 'Tilt or shake your head.', ids: ['headTiltLeft', 'headTiltRight', 'headTiltUp', 'headTiltDown', 'headShakeHorizontal', 'headShakeVertical'] },
+  { label: 'Hand movements', hint: 'Move your hand in a direction.', ids: ['swipeLeft', 'swipeRight', 'swipeUp', 'swipeDown'] },
+];
 
 function statusText(isDesktop, controlOn) {
   if (!isDesktop) return 'Sending keys needs the HandTap desktop app. You can still try the movements here.';
@@ -84,18 +90,28 @@ export function KeybindSection({ bindings, onChange, lastMovement, controlOn, is
       </div>
       <div className="keybind-panel">
         <p className="keybind-status">{statusText(isDesktop, controlOn)}</p>
-        <ul className="keybind-list">
-          {MOVEMENTS.map((movement) => (
-            <BindingRow
-              key={movement.id}
-              movement={movement}
-              combo={bindings[movement.id]}
-              flashing={flashingId === movement.id}
-              onChange={onChange}
-              reservedFor={movement.id === typingToggle ? 'Turns number typing on and off' : movement.id === controlToggle ? 'Turns mouse control on and off' : undefined}
-            />
+        <div className="keybind-groups">
+          {MOVEMENT_GROUPS.map(({ label, hint, ids }) => (
+            <section className="keybind-group" key={label} aria-labelledby={`keybind-group-${label}`}>
+              <div className="keybind-group-heading">
+                <h3 id={`keybind-group-${label}`}>{label}</h3>
+                <p>{hint}</p>
+              </div>
+              <ul className="keybind-list">
+                {ids.map((id) => MOVEMENTS.find((movement) => movement.id === id)).filter(Boolean).map((movement) => (
+                  <BindingRow
+                    key={movement.id}
+                    movement={movement}
+                    combo={bindings[movement.id]}
+                    flashing={flashingId === movement.id}
+                    onChange={onChange}
+                    reservedFor={movement.id === typingToggle ? 'Turns number typing on and off' : movement.id === controlToggle ? 'Turns mouse control on and off' : undefined}
+                  />
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
         <p className="keybind-live" aria-live="polite">{flashing ? `${flashing.label} detected` : ''}</p>
       </div>
     </section>
