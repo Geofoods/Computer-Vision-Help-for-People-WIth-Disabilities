@@ -1,12 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles } from 'lucide-react';
-import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import './styles.css';
 
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
-const WASM_URL = new URL('wasm', window.location.href).toString();
 const PINCH_THRESHOLD = 0.105;
 const RELEASE_THRESHOLD = 0.15;
 const CLICK_COOLDOWN = 500;
@@ -15,8 +11,10 @@ function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
-  const detectorRef = useRef(null);
-  const frameRef = useRef(null);
+  const workerRef = useRef(null);
+  const captureRef = useRef(null);
+  const processingRef = useRef(false);
+  const captureFrameRef = useRef(null);
   const cursorRef = useRef(null);
   const lastMoveRef = useRef(0);
   const pinchRef = useRef(false);
@@ -30,6 +28,7 @@ function App() {
   const [clicks, setClicks] = useState(0);
   const [sensitivity, setSensitivity] = useState(50);
   const [nativeError, setNativeError] = useState('');
+  const [workerReady, setWorkerReady] = useState(false);
 
   const moveCursor = useCallback((position) => {
     if (!window.handtapDesktop?.isDesktop) return;
@@ -42,7 +41,10 @@ function App() {
   }, []);
 
   const stopCamera = useCallback(() => {
-    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    if (captureRef.current) clearInterval(captureRef.current);
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    setWorkerReady(false);
     if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setCameraOn(false);
@@ -69,7 +71,7 @@ function App() {
     }
   }, []);
 
-  const drawLandmarks = (landmarks) => {
+  const drawLandmarks = useCallback((landmarks) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
@@ -98,22 +100,22 @@ function App() {
       context.lineTo(index.x * canvas.width, index.y * canvas.height);
       context.stroke();
     }
-  };
+  }, []);
 
-  const detect = useCallback(() => {
-    const video = videoRef.current;
-    const detector = detectorRef.current;
-    if (!video || !detector || video.readyState < 2) {
-      frameRef.current = requestAnimationFrame(detect);
-      return;
-    }
-    const result = detector.detectForVideo(video, performance.now());
-    const landmarks = result.landmarks?.[0];
+  const handleLandmarks = useCallback((landmarks) => {
     if (landmarks) {
       drawLandmarks(landmarks);
       const thumb = landmarks[4];
       const index = landmarks[8];
-      const screenPosition = { x: 1 - index.x, y: index.y };
+      const target = { x: 1 - index.x, y: index.y };
+      const previous = cursorRef.current?.dataset.position
+        ? JSON.parse(cursorRef.current.dataset.position)
+        : target;
+      const screenPosition = {
+        x: previous.x + (target.x - previous.x) * 0.35,
+        y: previous.y + (target.y - previous.y) * 0.35,
+      };
+      if (cursorRef.current) cursorRef.current.dataset.position = JSON.stringify(screenPosition);
       moveCursor(screenPosition);
       const distance = Math.hypot(thumb.x - index.x, thumb.y - index.y);
       const threshold = PINCH_THRESHOLD + (sensitivity - 50) * 0.0007;
@@ -132,8 +134,20 @@ function App() {
       cursorRef.current?.classList.remove('visible');
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
-    frameRef.current = requestAnimationFrame(detect);
-  }, [moveCursor, sensitivity, triggerClick]);
+  }, [drawLandmarks, moveCursor, sensitivity, triggerClick]);
+
+  const captureFrame = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || !workerRef.current || !workerReady || processingRef.current || video.readyState < 2) return;
+    processingRef.current = true;
+    try {
+      const bitmap = await createImageBitmap(video);
+      workerRef.current.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
+    } catch {
+      processingRef.current = false;
+    }
+  }, [workerReady]);
+  captureFrameRef.current = captureFrame;
 
   const startCamera = async () => {
     setLoading(true);
@@ -143,18 +157,23 @@ function App() {
       streamRef.current = stream;
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
-      const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-      detectorRef.current = await HandLandmarker.createFromOptions(vision, {
-        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-        runningMode: 'VIDEO',
-        numHands: 1,
-        minHandDetectionConfidence: 0.55,
-        minHandPresenceConfidence: 0.55,
-        minTrackingConfidence: 0.55,
-      });
+      const worker = new Worker(new URL('./hand-worker.js', import.meta.url), { type: 'module' });
+      workerRef.current = worker;
+      worker.onmessage = (event) => {
+        if (event.data.type === 'ready') {
+          setWorkerReady(true);
+          setGesture('Show one hand to camera');
+        } else if (event.data.type === 'result') {
+          processingRef.current = false;
+          handleLandmarks(event.data.landmarks);
+        } else if (event.data.type === 'error') {
+          setError(`Hand tracking could not start: ${event.data.message}`);
+        }
+      };
+      worker.postMessage({ type: 'init' });
       setCameraOn(true);
-      setGesture('Show one hand to camera');
-      frameRef.current = requestAnimationFrame(detect);
+      setGesture('Loading hand tracking');
+      captureRef.current = setInterval(() => captureFrameRef.current?.(), 33);
     } catch (cameraError) {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       setError(cameraError.name === 'NotAllowedError'
