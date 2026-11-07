@@ -2,10 +2,12 @@
   "name": "handtap-access",
   "private": true,
   "version": "0.1.0",
+  "description": "A desktop accessibility app for hands-free clicking",
+  "author": "HandTap",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "desktop:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "desktop:dev": "concurrently -k \"vite --host 127.0.0.1 --port 5174\" \"wait-on http://127.0.0.1:5174 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5174 electron .\"",
     "build": "vite build",
     "preview": "vite preview",
     "desktop": "electron .",

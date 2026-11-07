@@ -17,6 +17,7 @@ function App() {
   const streamRef = useRef(null);
   const detectorRef = useRef(null);
   const frameRef = useRef(null);
+  const cursorRef = useRef(null);
   const pinchRef = useRef(false);
   const lastClickRef = useRef(0);
   const demoButtonRef = useRef(null);
@@ -27,6 +28,7 @@ function App() {
   const [confidence, setConfidence] = useState(0);
   const [clicks, setClicks] = useState(0);
   const [sensitivity, setSensitivity] = useState(50);
+  const [nativeError, setNativeError] = useState('');
 
   const stopCamera = useCallback(() => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current);
@@ -36,14 +38,24 @@ function App() {
     setGesture('Camera paused');
     setConfidence(0);
     pinchRef.current = false;
+    cursorRef.current?.classList.remove('visible');
   }, []);
 
-  const triggerClick = useCallback(() => {
+  const triggerClick = useCallback(async (position) => {
     const now = performance.now();
     if (now - lastClickRef.current < CLICK_COOLDOWN) return;
     lastClickRef.current = now;
+    setNativeError('');
     setClicks((value) => value + 1);
-    demoButtonRef.current?.click();
+    try {
+      if (window.handtapDesktop?.isDesktop) {
+        await window.handtapDesktop.clickAt(position);
+      } else {
+        demoButtonRef.current?.click();
+      }
+    } catch (clickError) {
+      setNativeError(clickError.message || 'The desktop click could not be completed.');
+    }
   }, []);
 
   const drawLandmarks = (landmarks) => {
@@ -63,6 +75,11 @@ function App() {
     const thumb = landmarks[4];
     const index = landmarks[8];
     if (thumb && index) {
+      if (cursorRef.current) {
+        cursorRef.current.style.left = `${(1 - index.x) * 100}%`;
+        cursorRef.current.style.top = `${index.y * 100}%`;
+        cursorRef.current.classList.add('visible');
+      }
       context.strokeStyle = pinchRef.current ? '#67e8a4' : '#f2b84b';
       context.lineWidth = 4;
       context.beginPath();
@@ -92,11 +109,14 @@ function App() {
         : distance < threshold;
       setConfidence(Math.max(0, Math.min(100, Math.round((1 - distance / 0.3) * 100))));
       setGesture(isPinching ? 'Tap detected' : 'Hand ready');
-      if (isPinching && !pinchRef.current) triggerClick();
+      if (isPinching && !pinchRef.current) {
+        triggerClick({ x: 1 - index.x, y: index.y });
+      }
       pinchRef.current = isPinching;
     } else {
       setGesture('Show one hand to camera');
       setConfidence(0);
+      cursorRef.current?.classList.remove('visible');
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
     frameRef.current = requestAnimationFrame(detect);
@@ -167,10 +187,12 @@ function App() {
           <div className="camera-view">
             <video ref={videoRef} className={cameraOn ? 'visible' : ''} playsInline muted />
             <canvas ref={canvasRef} />
+            <div ref={cursorRef} className="fake-cursor" aria-hidden="true"><MousePointer2 size={26} /></div>
             {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={28} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
             {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
           </div>
           {error && <div className="error-message"><AlertCircle size={16} /> {error}</div>}
+          <div className="camera-hint"><MousePointer2 size={14} /> The purple cursor follows your index finger</div>
           <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
             {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
           </button>
@@ -187,7 +209,7 @@ function App() {
               <span>Tap here with your fingers</span>
               <small>The button will activate when you pinch</small>
             </button>
-            <div className="success-note"><Check size={16} /> Your clicks happen right in the browser</div>
+            <div className="success-note"><Check size={16} /> Pinch once to click wherever the cursor is pointing</div>
           </div>
           <aside className="status-panel">
             <p className="panel-label">Gesture status</p>
@@ -196,11 +218,12 @@ function App() {
             <div className="meter"><span style={{ width: `${confidence}%` }} /></div>
             <div className="settings-title"><Settings2 size={15} /> Sensitivity <strong>{sensitivity}%</strong></div>
             <input aria-label="Gesture sensitivity" type="range" min="20" max="80" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} />
+            {nativeError && <div className="error-message"><AlertCircle size={16} /> {nativeError}</div>}
           </aside>
         </div>
       </section>
 
-      <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally in your browser.</span></footer>
+      <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally on this computer.</span></footer>
     </main>
   );
 }
