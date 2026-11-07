@@ -14,6 +14,9 @@ using System.Runtime.InteropServices;
 public static class HandTapMouse {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+  public static void Scroll(int amount) {
+    mouse_event(0x0800, 0, 0, unchecked((uint)amount), [UIntPtr]::Zero);
+  }
 }
 '@
 while ($line = [Console]::In.ReadLine()) {
@@ -22,6 +25,9 @@ while ($line = [Console]::In.ReadLine()) {
   if ($command.click) {
     [HandTapMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
     [HandTapMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+  }
+  if ($command.scroll) {
+    [HandTapMouse]::Scroll(-[int]$command.scroll)
   }
 }
 `;
@@ -34,7 +40,7 @@ while ($line = [Console]::In.ReadLine()) {
   });
 }
 
-function writeMouseCommand(position, click = false) {
+function writeMouseCommand(position, click = false, scroll = 0) {
   if (process.platform !== 'win32') {
     throw new Error('Native desktop clicking is currently supported on Windows.');
   }
@@ -53,11 +59,13 @@ function writeMouseCommand(position, click = false) {
     x: originX + Math.round(x * (width - 1)),
     y: originY + Math.round(y * (height - 1)),
     click,
+    scroll,
   })}\n`);
 }
 
 ipcMain.handle('handtap:move', (_event, position) => writeMouseCommand(position));
 ipcMain.handle('handtap:click', (_event, position) => writeMouseCommand(position, true));
+ipcMain.handle('handtap:scroll', () => writeMouseCommand({ x: 0, y: 0 }, false, 600));
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();

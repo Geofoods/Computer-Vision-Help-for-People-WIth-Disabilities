@@ -11,7 +11,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "desktop": "electron .",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^0.10.22",
@@ -43,7 +43,8 @@
     },
     "win": {
       "target": "nsis",
-      "artifactName": "HandTap-Setup-${version}.${ext}"
+      "artifactName": "HandTap-Setup-${version}.${ext}",
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": "dmg"

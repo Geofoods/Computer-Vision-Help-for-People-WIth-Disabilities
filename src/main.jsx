@@ -1,17 +1,30 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles } from 'lucide-react';
+import { FilesetResolver, FaceLandmarker, HandLandmarker } from '@mediapipe/tasks-vision';
 import './styles.css';
 
+const MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const FACE_MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task';
+const WASM_URL = new URL('wasm', window.location.href).toString();
 const PINCH_THRESHOLD = 0.105;
 const RELEASE_THRESHOLD = 0.15;
 const CLICK_COOLDOWN = 500;
+const CAMERA_EDGE_MARGIN = 0.16;
+
+function mapCameraToScreen(value) {
+  return Math.max(0, Math.min(1, (value - CAMERA_EDGE_MARGIN) / (1 - CAMERA_EDGE_MARGIN * 2)));
+}
 
 function App() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const workerRef = useRef(null);
+  const detectorRef = useRef(null);
+  const faceDetectorRef = useRef(null);
   const captureRef = useRef(null);
   const processingRef = useRef(false);
   const captureFrameRef = useRef(null);
@@ -19,6 +32,8 @@ function App() {
   const lastMoveRef = useRef(0);
   const pinchRef = useRef(false);
   const lastClickRef = useRef(0);
+  const lastScrollRef = useRef(0);
+  const tongueRef = useRef(false);
   const demoButtonRef = useRef(null);
   const [cameraOn, setCameraOn] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -40,10 +55,29 @@ function App() {
     });
   }, []);
 
+  const handleFace = useCallback((blendshapes) => {
+    const jawOpen = blendshapes.find(({ categoryName }) => categoryName === 'jawOpen')?.score || 0;
+    const mouthPucker = blendshapes.find(({ categoryName }) => categoryName === 'mouthPucker')?.score || 0;
+    const tongueOut = blendshapes.find(({ categoryName }) => categoryName === 'tongueOut')?.score || 0;
+    const licking = tongueOut > 0.35 || (jawOpen > 0.42 && mouthPucker > 0.12);
+    const now = performance.now();
+    if (licking && !tongueRef.current && now - lastScrollRef.current > 1200) {
+      lastScrollRef.current = now;
+      window.handtapDesktop?.scrollDown?.().catch((scrollError) => {
+        setNativeError(scrollError.message || 'The desktop page could not be scrolled.');
+      });
+    }
+    tongueRef.current = licking;
+  }, []);
+
   const stopCamera = useCallback(() => {
     if (captureRef.current) clearInterval(captureRef.current);
     workerRef.current?.terminate();
     workerRef.current = null;
+    detectorRef.current?.close?.();
+    detectorRef.current = null;
+    faceDetectorRef.current?.close?.();
+    faceDetectorRef.current = null;
     setWorkerReady(false);
     if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -107,7 +141,10 @@ function App() {
       drawLandmarks(landmarks);
       const thumb = landmarks[4];
       const index = landmarks[8];
-      const target = { x: 1 - index.x, y: index.y };
+      const target = {
+        x: mapCameraToScreen(1 - index.x),
+        y: mapCameraToScreen(index.y),
+      };
       const previous = cursorRef.current?.dataset.position
         ? JSON.parse(cursorRef.current.dataset.position)
         : target;
@@ -134,19 +171,32 @@ function App() {
       cursorRef.current?.classList.remove('visible');
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
-  }, [drawLandmarks, moveCursor, sensitivity, triggerClick]);
+  }, [drawLandmarks, handleFace, moveCursor, sensitivity, triggerClick]);
 
   const captureFrame = useCallback(async () => {
     const video = videoRef.current;
-    if (!video || !workerRef.current || !workerReady || processingRef.current || video.readyState < 2) return;
+    if (!video || processingRef.current || video.readyState < 2) return;
     processingRef.current = true;
     try {
+      if (detectorRef.current) {
+        const timestamp = performance.now();
+        const result = detectorRef.current.detectForVideo(video, timestamp);
+        const faceResult = faceDetectorRef.current?.detectForVideo(video, timestamp);
+        processingRef.current = false;
+        handleLandmarks(result.landmarks?.[0] || null);
+        handleFace(faceResult?.faceBlendshapes?.[0]?.categories || []);
+        return;
+      }
+      if (!workerRef.current || !workerReady) {
+        processingRef.current = false;
+        return;
+      }
       const bitmap = await createImageBitmap(video);
       workerRef.current.postMessage({ type: 'frame', bitmap, timestamp: performance.now() }, [bitmap]);
     } catch {
       processingRef.current = false;
     }
-  }, [workerReady]);
+  }, [handleFace, handleLandmarks, workerReady]);
   captureFrameRef.current = captureFrame;
 
   const startCamera = async () => {
@@ -166,8 +216,33 @@ function App() {
         } else if (event.data.type === 'result') {
           processingRef.current = false;
           handleLandmarks(event.data.landmarks);
+          handleFace(event.data.faceBlendshapes || []);
         } else if (event.data.type === 'error') {
-          setError(`Hand tracking could not start: ${event.data.message}`);
+          worker.terminate();
+          workerRef.current = null;
+          setGesture('Starting compatible hand tracking');
+          FilesetResolver.forVisionTasks(WASM_URL)
+            .then(async (vision) => {
+              detectorRef.current = await HandLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+                runningMode: 'VIDEO',
+                numHands: 1,
+                minHandDetectionConfidence: 0.55,
+                minHandPresenceConfidence: 0.55,
+                minTrackingConfidence: 0.55,
+              });
+              faceDetectorRef.current = await FaceLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: FACE_MODEL_URL, delegate: 'GPU' },
+                runningMode: 'VIDEO',
+                outputFaceBlendshapes: true,
+                numFaces: 1,
+              });
+              setWorkerReady(true);
+              setGesture('Show one hand to camera');
+            })
+            .catch((fallbackError) => {
+              setError(`Hand tracking could not start: ${fallbackError.message}`);
+            });
         }
       };
       worker.postMessage({ type: 'init' });
