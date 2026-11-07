@@ -36,13 +36,16 @@ self.onmessage = async (event) => {
 
   if (type === 'frame' && detector) {
     const { bitmap, timestamp } = event.data;
-    const result = detector.detectForVideo(bitmap, timestamp);
-    const faceResult = faceDetector.detectForVideo(bitmap, timestamp);
-    bitmap.close();
-    self.postMessage({
-      type: 'result',
-      landmarks: result.landmarks?.[0] || null,
-      faceBlendshapes: faceResult.faceBlendshapes?.[0]?.categories || [],
-    });
+    try {
+      const result = detector.detectForVideo(bitmap, timestamp);
+      const faceResult = faceDetector?.detectForVideo(bitmap, timestamp);
+      self.postMessage({
+        type: 'result',
+        landmarks: result.landmarks?.[0] || null,
+        faceBlendshapes: faceResult?.faceBlendshapes?.[0]?.categories || [],
+      });
+    } finally {
+      bitmap.close();
+    }
   }
 };
