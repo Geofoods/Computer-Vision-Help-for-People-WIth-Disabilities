@@ -171,7 +171,7 @@ test('number typing starts on a thumb tap that no shortcut is using', () => {
 test('a toggle set the old way carries over, and stops being a shortcut', () => {
   const storage = memoryStorage({ 'handtap.keybinds': JSON.stringify({ swipeUp: 'NumberTyping', fist: 'Enter' }) });
   assert.equal(loadTypingToggle(storage), 'swipeUp');
-  assert.deepEqual(loadBindings(storage), { fist: 'Enter' });
+  assert.deepEqual(loadBindings(storage), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Enter' });
 });
 
 test('number typing preferences survive a save and load, including turning the toggle off', () => {
@@ -194,13 +194,13 @@ test('a fist cannot toggle number typing, and bad or failing storage has a safe 
 test('bindings survive a save and load', () => {
   const storage = memoryStorage();
   saveBindings(storage, { fist: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(storage), { fist: 'Ctrl+C' });
+  assert.deepEqual(loadBindings(storage), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Ctrl+C' });
 });
 
 test('loadBindings ignores unknown movements, bad values, and corrupt or failing storage', () => {
   const saved = JSON.stringify({ fist: 'Enter', ringTap: 7, teleport: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), { fist: 'Enter' });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), {});
-  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), {});
-  assert.equal(MOVEMENTS.length, 7);
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Enter' });
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), { indexTap: 'Left Click', tongueLick: 'Scroll Down' });
+  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), { indexTap: 'Left Click', tongueLick: 'Scroll Down' });
+  assert.equal(MOVEMENTS.length, 9);
 });
