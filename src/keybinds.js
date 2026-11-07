@@ -8,6 +8,8 @@ export const TOGGLE_TYPING = 'NumberTyping';
 export const MOVEMENTS = [
   { id: 'indexTap', label: 'Tap thumb + index', hint: 'Touch your thumb to your index finger' },
   { id: 'tongueLick', label: 'Tongue lick', hint: 'Stick out your tongue briefly' },
+  { id: 'headTiltLeft', label: 'Tilt head left', hint: 'Tilt your head to the left' },
+  { id: 'headTiltRight', label: 'Tilt head right', hint: 'Tilt your head to the right' },
   { id: 'swipeLeft', label: 'Swipe left', hint: 'Sweep your hand quickly to the left' },
   { id: 'swipeRight', label: 'Swipe right', hint: 'Sweep your hand quickly to the right' },
   { id: 'swipeUp', label: 'Swipe up', hint: 'Sweep your hand quickly upward' },
@@ -20,6 +22,15 @@ export const MOVEMENTS = [
 export const DEFAULT_BINDINGS = {
   indexTap: 'Left Click',
   tongueLick: 'Scroll Down',
+  headTiltLeft: 'Alt+Left',
+  headTiltRight: 'Alt+Right',
+  swipeLeft: 'Left',
+  swipeRight: 'Right',
+  swipeUp: 'Up',
+  swipeDown: 'Down',
+  fist: 'Esc',
+  middleTap: 'Ctrl+C',
+  ringTap: 'Ctrl+V',
 };
 
 // Listed so nobody has to physically press a shortcut, which may be the reason they use this app.

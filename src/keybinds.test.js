@@ -166,13 +166,61 @@ test('every key the recorder can produce is accepted by the desktop side', () =>
 test('bindings survive a save and load', () => {
   const storage = memoryStorage();
   saveBindings(storage, { fist: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(storage), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Ctrl+C' });
+  assert.deepEqual(loadBindings(storage), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Ctrl+C',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
 });
 
 test('loadBindings ignores unknown movements, bad values, and corrupt or failing storage', () => {
   const saved = JSON.stringify({ fist: 'Enter', ringTap: 7, teleport: 'Ctrl+C' });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), { indexTap: 'Left Click', tongueLick: 'Scroll Down', fist: 'Enter' });
-  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), { indexTap: 'Left Click', tongueLick: 'Scroll Down' });
-  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), { indexTap: 'Left Click', tongueLick: 'Scroll Down' });
-  assert.equal(MOVEMENTS.length, 9);
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': saved })), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Enter',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
+  assert.deepEqual(loadBindings(memoryStorage({ 'handtap.keybinds': '{oops' })), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Esc',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
+  assert.deepEqual(loadBindings({ getItem() { throw new Error('blocked'); } }), {
+    indexTap: 'Left Click',
+    tongueLick: 'Scroll Down',
+    headTiltLeft: 'Alt+Left',
+    headTiltRight: 'Alt+Right',
+    swipeLeft: 'Left',
+    swipeRight: 'Right',
+    swipeUp: 'Up',
+    swipeDown: 'Down',
+    fist: 'Esc',
+    middleTap: 'Ctrl+C',
+    ringTap: 'Ctrl+V',
+  });
+  assert.equal(MOVEMENTS.length, 11);
 });
