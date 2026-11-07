@@ -10,7 +10,8 @@ function statusText(isDesktop, controlOn) {
   return 'Movements with a shortcut now press it in whichever app is in front.';
 }
 
-function BindingRow({ movement, combo, flashing, onChange, reserved }) {
+function BindingRow({ movement, combo, flashing, onChange, reservedFor }) {
+  const reserved = Boolean(reservedFor);
   const [recording, setRecording] = useState(false);
   const selectId = `keybind-${movement.id}`;
 
@@ -36,12 +37,12 @@ function BindingRow({ movement, combo, flashing, onChange, reserved }) {
         <small>{movement.hint}</small>
       </div>
       <select id={selectId} value={reserved ? '' : combo ?? ''} disabled={reserved} onChange={(event) => onChange(movement.id, event.target.value)}>
-        <option value="">{reserved ? 'Turns number typing on and off' : 'No shortcut'}</option>
+        <option value="">{reservedFor ?? 'No shortcut'}</option>
         {combo && !isPreset(combo) && <option value={combo}>{combo}</option>}
         {PRESET_GROUPS.map(({ label, presets }) => (
           <optgroup key={label} label={label}>
             {presets.map((preset) => (
-              <option key={preset.combo} value={preset.combo}>{preset.label} ({preset.combo})</option>
+              <option key={preset.combo} value={preset.combo}>{preset.label.toLowerCase() === preset.combo.toLowerCase() ? preset.label : `${preset.label} (${preset.combo})`}</option>
             ))}
           </optgroup>
         ))}
@@ -61,7 +62,7 @@ function BindingRow({ movement, combo, flashing, onChange, reserved }) {
   );
 }
 
-export function KeybindSection({ bindings, onChange, lastMovement, controlOn, isDesktop, typingToggle }) {
+export function KeybindSection({ bindings, onChange, lastMovement, controlOn, isDesktop, typingToggle, controlToggle }) {
   const [flashingId, setFlashingId] = useState(null);
 
   useEffect(() => {
@@ -91,7 +92,7 @@ export function KeybindSection({ bindings, onChange, lastMovement, controlOn, is
               combo={bindings[movement.id]}
               flashing={flashingId === movement.id}
               onChange={onChange}
-              reserved={movement.id === typingToggle}
+              reservedFor={movement.id === typingToggle ? 'Turns number typing on and off' : movement.id === controlToggle ? 'Turns mouse control on and off' : undefined}
             />
           ))}
         </ul>

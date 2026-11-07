@@ -161,6 +161,13 @@ test('every key the recorder can produce is accepted by the desktop side', () =>
   }
 });
 
+test('a default action can be turned off, and stays off', () => {
+  const storage = memoryStorage();
+  saveBindings(storage, { indexTap: 'Left Click', tongueLick: '' });
+  assert.equal(loadBindings(storage).tongueLick, '');
+  assert.equal(loadBindings(storage).indexTap, 'Left Click');
+});
+
 test('number typing starts on a thumb tap that no shortcut is using', () => {
   const withBindings = (bindings) => memoryStorage({ 'handtap.keybinds': JSON.stringify(bindings) });
   assert.equal(loadTypingToggle(memoryStorage()), 'ringTap');

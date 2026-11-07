@@ -1,16 +1,21 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
-import { REACH_ZONE, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { REACH_ZONE, computeReachZone, createDigitDetector, createHoldDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { loadBindings, loadSoundsOn, loadTypingToggle, saveBindings, saveTypingPreferences } from './keybinds.js';
-import { playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
+import { playControlOff, playControlOn, playDigitTyped, playTypingOff, playTypingOn } from './sounds.js';
+import { SAMPLES_PER_TEACH, addSamples, createGestureModel, forgetLabel, handFeatures } from './gesture-model.js';
+import { loadAutoStart, loadControlToggle, loadGestureSamples, loadReachZone, saveAutoStart, saveControlToggle, saveGestureSamples, saveReachZone } from './preferences.js';
 import { KeybindSection } from './KeybindSection.jsx';
 import { NumberTyping } from './NumberTyping.jsx';
+import { SetupPanel } from './SetupPanel.jsx';
 import './styles.css';
 
 const CLICK_COOLDOWN = 500;
 const SCROLL_COOLDOWN = 1200;
 const TYPED_DISPLAY_LENGTH = 24;
+const TEACH_COUNTDOWN = 1500;
+const REACH_CAPTURE_TIME = 5000;
 // A timer rather than requestAnimationFrame, which stops when the window is hidden
 // and would freeze the mouse the moment another app covers this one.
 const FRAME_INTERVAL = 33;
@@ -57,6 +62,10 @@ function App() {
   const movementRef = useRef(createMovementDetector());
   const digitRef = useRef(createDigitDetector());
   const toggleHoldRef = useRef(createHoldDetector());
+  const controlHoldRef = useRef(createHoldDetector());
+  // Set while learning from the hand. Nothing else acts on the hand during these.
+  const teachRef = useRef(null);
+  const reachCaptureRef = useRef(null);
   const lastScrollRef = useRef(0);
   const lastPositionRef = useRef(null);
   const tongueRef = useRef(false);
@@ -86,6 +95,14 @@ function App() {
   const [soundsOn, setSoundsOn] = useState(() => loadSoundsOn(window.localStorage));
   const [armedDigit, setArmedDigit] = useState(null);
   const [typed, setTyped] = useState('');
+  const [controlToggle, setControlToggle] = useState(() => loadControlToggle(window.localStorage, typingToggle, bindings));
+  const [autoStart, setAutoStart] = useState(() => loadAutoStart(window.localStorage));
+  const [reachZone, setReachZone] = useState(() => loadReachZone(window.localStorage));
+  const [reachCapturing, setReachCapturing] = useState(false);
+  const [reachMessage, setReachMessage] = useState('');
+  const [gestureSamples, setGestureSamples] = useState(() => loadGestureSamples(window.localStorage));
+  const [teaching, setTeaching] = useState(null);
+  const gestureModel = useMemo(() => createGestureModel(gestureSamples), [gestureSamples]);
 
   // The detection loop runs outside React's render cycle, so it reads current values
   // from refs. Values captured in a closure would never update once the loop started.
@@ -97,6 +114,12 @@ function App() {
   typingRef.current = typingOn;
   const typingToggleRef = useRef(typingToggle);
   typingToggleRef.current = typingToggle;
+  const controlToggleRef = useRef(controlToggle);
+  controlToggleRef.current = controlToggle;
+  const reachZoneRef = useRef(reachZone);
+  reachZoneRef.current = reachZone;
+  const gestureModelRef = useRef(gestureModel);
+  gestureModelRef.current = gestureModel;
   const soundsRef = useRef(soundsOn);
   soundsRef.current = soundsOn;
   const bindingsRef = useRef(bindings);
@@ -105,14 +128,17 @@ function App() {
   const setBinding = useCallback((id, combo) => {
     setBindings((current) => {
       const next = { ...current };
-      if (combo) next[id] = combo;
-      else delete next[id];
+      next[id] = combo;
       return next;
     });
   }, []);
 
   useEffect(() => saveBindings(window.localStorage, bindings), [bindings]);
   useEffect(() => saveTypingPreferences(window.localStorage, typingToggle, soundsOn), [typingToggle, soundsOn]);
+  useEffect(() => saveControlToggle(window.localStorage, controlToggle), [controlToggle]);
+  useEffect(() => saveAutoStart(window.localStorage, autoStart), [autoStart]);
+  useEffect(() => saveReachZone(window.localStorage, reachZone === REACH_ZONE ? null : reachZone), [reachZone]);
+  useEffect(() => saveGestureSamples(window.localStorage, gestureSamples), [gestureSamples]);
 
   // Covers every way of toggling, and is the only sign of it from inside another app.
   const wasTypingRef = useRef(typingOn);
@@ -122,11 +148,19 @@ function App() {
     if (soundsRef.current) (typingOn ? playTypingOn : playTypingOff)();
   }, [typingOn]);
 
+  const wasControlRef = useRef(controlOn);
+  useEffect(() => {
+    if (wasControlRef.current === controlOn) return;
+    wasControlRef.current = controlOn;
+    if (soundsRef.current) (controlOn ? playControlOn : playControlOff)();
+  }, [controlOn]);
+
   const resetTracking = () => {
     pinchRef.current.reset();
     movementRef.current.reset();
     digitRef.current.reset();
     toggleHoldRef.current.reset();
+    controlHoldRef.current.reset();
     setArmedDigit(null);
     filterXRef.current.reset();
     filterYRef.current.reset();
@@ -149,6 +183,10 @@ function App() {
     setTongueActive(false);
     tongueRef.current = false;
     faceLandmarksRef.current = null;
+    teachRef.current = null;
+    setTeaching(null);
+    reachCaptureRef.current = null;
+    setReachCapturing(false);
     resetTracking();
   }, []);
 
@@ -173,9 +211,13 @@ function App() {
     // Number typing is made of poses, so only a swipe can mean something else while it's on.
     if (typingRef.current && !id.startsWith('swipe')) return;
     setLastMovement({ id });
-    // A tap used as the toggle is handled as a hold in handleLandmarks instead.
+    // A tap used as a toggle is handled as a hold in handleLandmarks instead.
     if (id === typingToggleRef.current) {
       if (id.startsWith('swipe')) setTypingOn((value) => !value);
+      return;
+    }
+    if (id === controlToggleRef.current) {
+      if (id.startsWith('swipe') && desktop && !typingRef.current) setControlOn((value) => !value);
       return;
     }
     const combo = bindingsRef.current[id];
@@ -221,10 +263,7 @@ function App() {
       const now = performance.now();
       if (desktop && controlRef.current && now - lastScrollRef.current > SCROLL_COOLDOWN) {
         lastScrollRef.current = now;
-        if (bindingsRef.current.tongueLick) triggerMovement('tongueLick');
-        else desktop.scrollDown().catch((scrollError) => {
-          setNativeError(scrollError.message || 'The page could not be scrolled.');
-        });
+        triggerMovement('tongueLick');
       }
     }
     tongueRef.current = licking;
@@ -294,23 +333,53 @@ function App() {
     const smoothed = { x: filterXRef.current.filter(point.x, now), y: filterYRef.current.filter(point.y, now) };
     const aspect = video.videoWidth / video.videoHeight;
     const ratio = pinchRatio(landmarks, aspect);
+
+    const teach = teachRef.current;
+    if (teach && now >= teach.startsAt) {
+      const features = handFeatures(landmarks, aspect);
+      if (features) teach.samples.push(features);
+      setTeaching({ label: teach.label, status: 'recording', percent: Math.round((teach.samples.length / SAMPLES_PER_TEACH) * 100) });
+      if (teach.samples.length >= SAMPLES_PER_TEACH) {
+        teachRef.current = null;
+        setTeaching(null);
+        setGestureSamples((current) => addSamples(current, teach.label, teach.samples));
+        if (soundsRef.current) playDigitTyped();
+      }
+    }
+    const reach = reachCaptureRef.current;
+    if (reach) {
+      reach.points.push(smoothed);
+      if (now >= reach.until) {
+        const zone = computeReachZone(reach.points);
+        reachCaptureRef.current = null;
+        setReachCapturing(false);
+        if (zone) setReachZone(zone);
+        setReachMessage(zone ? 'Done. This space now covers your whole screen.' : 'That was a very small movement. Try moving a little further, or check your hand stays in view.');
+        if (zone && soundsRef.current) playDigitTyped();
+      }
+    }
+    // Learning from the hand shouldn't also click, type or move the mouse.
+    const capturing = Boolean(teachRef.current || reachCaptureRef.current);
+
     const { movement, pose } = movementRef.current.update(landmarks, { aspect, now, sensitivity: sensitivityRef.current });
-    // Making a bound pose can bring the index near the thumb, which shouldn't also click.
-    // Unbound poses leave clicking exactly as it is for people not using keybinds.
-    const poseIsToggle = Boolean(pose) && pose === typingToggleRef.current;
-    const poseIsBound = poseIsToggle || Boolean(pose && bindingsRef.current[pose]);
     const typing = typingRef.current;
-    if (toggleHoldRef.current.update(poseIsToggle, now)) setTypingOn((value) => !value);
-    const { pinching, justPinched } = pinchRef.current.update(typing || poseIsBound ? Infinity : ratio, sensitivityRef.current);
-    if (typing && !poseIsToggle) {
-      const { digit, armed } = digitRef.current.update(landmarks, aspect);
+    const poseIsToggle = Boolean(pose) && pose === typingToggleRef.current;
+    const poseIsControlToggle = Boolean(pose) && pose === controlToggleRef.current && !typing;
+    if (toggleHoldRef.current.update(poseIsToggle && !capturing, now)) setTypingOn((value) => !value);
+    if (controlHoldRef.current.update(poseIsControlToggle && !capturing && Boolean(desktop), now)) setControlOn((value) => !value);
+    // Making these poses can bring the index near the thumb, which shouldn't also click.
+    // A closing hand reads as a pinch on real photos, so a fist never clicks.
+    const poseBlocksClick = pose === 'fist' || poseIsToggle || poseIsControlToggle || Boolean(pose && bindingsRef.current[pose]);
+    const { pinching, justPinched } = pinchRef.current.update(typing || capturing || poseBlocksClick ? Infinity : ratio, sensitivityRef.current);
+    if (typing && !poseIsToggle && !capturing) {
+      const { digit, armed } = digitRef.current.update(landmarks, aspect, gestureModelRef.current);
       setArmedDigit(armed);
       if (digit !== null) typeDigit(digit);
     } else {
       digitRef.current.reset();
       setArmedDigit(null);
     }
-    const screenPosition = toScreen(smoothed);
+    const screenPosition = toScreen(smoothed, reachZoneRef.current);
     lastPositionRef.current = screenPosition;
 
     drawLandmarks(landmarks, pinching);
@@ -321,14 +390,11 @@ function App() {
       cursorRef.current.classList.add('visible');
     }
     setStrength(Math.max(0, Math.min(100, Math.round((1 - ratio) * 100))));
-    setGesture(typing ? 'Typing numbers' : pinching ? 'Tap detected' : 'Hand ready');
+    setGesture(capturing ? 'Learning your hand' : typing ? 'Typing numbers' : pinching ? 'Tap detected' : 'Hand ready');
 
-    if (desktop && controlRef.current && !typing) desktop.moveTo(screenPosition);
-    if (justPinched) {
-      if (bindingsRef.current.indexTap) triggerMovement('indexTap', screenPosition);
-      else triggerClick(screenPosition);
-    }
-    if (movement) triggerMovement(movement, screenPosition);
+    if (desktop && controlRef.current && !typing && !capturing) desktop.moveTo(screenPosition);
+    if (justPinched) triggerMovement('indexTap', screenPosition);
+    if (movement && !capturing) triggerMovement(movement, screenPosition);
   }, [triggerClick, triggerMovement, typeDigit]);
   onLandmarksRef.current = handleLandmarks;
 
@@ -411,6 +477,22 @@ function App() {
     workerRef.current = null;
   }, [stopCamera]);
 
+  const teachGesture = useCallback((label) => {
+    teachRef.current = { label, startsAt: performance.now() + TEACH_COUNTDOWN, samples: [] };
+    setTeaching({ label, status: 'ready', percent: 0 });
+  }, []);
+
+  const calibrateReach = useCallback(() => {
+    reachCaptureRef.current = { until: performance.now() + REACH_CAPTURE_TIME, points: [] };
+    setReachCapturing(true);
+    setReachMessage('Keep moving your hand around for five seconds…');
+  }, []);
+
+  // Runs once, so someone who can't reach the button doesn't need it to get going.
+  useEffect(() => {
+    if (autoStart) startCamera();
+  }, []);
+
   useEffect(() => {
     desktop?.getTypingHotkey().then(setTypingHotkey);
     return desktop?.onToggleTyping(() => {
@@ -455,6 +537,7 @@ function App() {
             <li>If taps are missed, raise the sensitivity. If clicks fire by accident, lower it.</li>
             <li>To get the regular mouse back, lower your hand out of view{hotkey ? ` or press ${hotkey}` : ''}.</li>
             <li>While mouse control is on, sticking out your tongue scrolls down the window under the cursor.</li>
+            <li>If reaching the screen's corners is hard, calibrate your reach so a smaller movement covers the whole screen.</li>
             <li>To type a number, turn on number typing, hold up its fingers until it shows as ready, then close your hand. The chart under Number typing shows each pattern, and you can choose the movement that turns it on and off.</li>
             <li>Keybinds press a keyboard shortcut when you make a movement. A fast cursor move can count as a swipe, so only give swipes a shortcut if you want them.</li>
           </ul>
@@ -496,10 +579,10 @@ function App() {
                 className="reach-zone"
                 aria-hidden="true"
                 style={{
-                  left: `${REACH_ZONE.left * 100}%`,
-                  right: `${(1 - REACH_ZONE.right) * 100}%`,
-                  top: `${REACH_ZONE.top * 100}%`,
-                  bottom: `${(1 - REACH_ZONE.bottom) * 100}%`,
+                  left: `${reachZone.left * 100}%`,
+                  right: `${(1 - reachZone.right) * 100}%`,
+                  top: `${reachZone.top * 100}%`,
+                  bottom: `${(1 - reachZone.bottom) * 100}%`,
                 }}
               />
             )}
@@ -555,6 +638,24 @@ function App() {
         </div>
       </section>
 
+      <SetupPanel
+        cameraOn={cameraOn}
+        isDesktop={Boolean(desktop)}
+        reachCapturing={reachCapturing}
+        reachMessage={reachMessage}
+        reachIsCustom={reachZone !== REACH_ZONE}
+        onCalibrateReach={calibrateReach}
+        onResetReach={() => {
+          setReachZone(REACH_ZONE);
+          setReachMessage('Back to the standard reach.');
+        }}
+        autoStart={autoStart}
+        onChangeAutoStart={setAutoStart}
+        controlToggle={controlToggle}
+        onChangeControlToggle={setControlToggle}
+        typingToggle={typingToggle}
+      />
+
       <NumberTyping
         typingOn={typingOn}
         onToggle={() => setTypingOn((value) => !value)}
@@ -569,6 +670,11 @@ function App() {
         onChangeToggle={setTypingToggle}
         soundsOn={soundsOn}
         onChangeSounds={setSoundsOn}
+        controlToggle={controlToggle}
+        gestureSamples={gestureSamples}
+        teaching={teaching}
+        onTeach={teachGesture}
+        onForget={(label) => setGestureSamples((current) => forgetLabel(current, label))}
       />
 
       <KeybindSection
@@ -578,6 +684,7 @@ function App() {
         controlOn={controlOn}
         isDesktop={Boolean(desktop)}
         typingToggle={typingToggle}
+        controlToggle={controlToggle}
       />
 
       <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally on this computer.</span></footer>

@@ -155,7 +155,8 @@ export function loadBindings(storage) {
   try {
     const saved = JSON.parse(storage.getItem(STORAGE_KEY)) ?? {};
     for (const { id } of MOVEMENTS) {
-      if (typeof saved[id] === 'string' && saved[id] && saved[id] !== OLD_TOGGLE_COMBO) bindings[id] = saved[id];
+      // An empty string is kept: it's how someone turns off a movement that has a default.
+      if (typeof saved[id] === 'string' && saved[id] !== OLD_TOGGLE_COMBO) bindings[id] = saved[id];
     }
   } catch (error) {
     console.warn('Could not load keybinds.', error);
