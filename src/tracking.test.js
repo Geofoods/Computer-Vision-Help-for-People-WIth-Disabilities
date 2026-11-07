@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DIGIT_CHART, createDigitDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { DIGIT_CHART, createDigitDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchProgress, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -206,4 +206,13 @@ test('the filter catches up with a fast move', () => {
   let output = filter.filter(0, 0);
   for (let frame = 1; frame <= 15; frame += 1) output = filter.filter(0.8, frame * 33);
   assert.ok(output > 0.7, `output ${output}`);
+});
+
+test('pinch progress rises as the fingers close in, reaching 1 where a tap fires', () => {
+  assert.equal(pinchProgress(1.2), 0);
+  assert.equal(pinchProgress(0.3), 1);
+  assert.equal(pinchProgress(0.1), 1);
+  assert.ok(pinchProgress(0.4) > pinchProgress(0.6));
+  // A more sensitive setting fires sooner, so the ring fills sooner too.
+  assert.ok(pinchProgress(0.4, 80) > pinchProgress(0.4, 50));
 });

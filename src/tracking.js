@@ -39,6 +39,15 @@ export function pinchRatio(landmarks, aspect = 1) {
   return thumbGap(landmarks, INDEX_TIP, aspect);
 }
 
+// How far above the press threshold fingers start to count as closing in on a tap.
+const PINCH_APPROACH = 0.5;
+
+/** How close a pinch is to clicking: 0 while the fingers are apart, 1 at the press threshold. */
+export function pinchProgress(ratio, sensitivity = 50) {
+  const press = pressThreshold(sensitivity);
+  return clamp01((press + PINCH_APPROACH - ratio) / PINCH_APPROACH);
+}
+
 /** How far a fingertip is from the wrist compared with its middle joint: under 1 means curled. */
 function fingerExtension(landmarks, [joint, tip], aspect) {
   const wrist = landmarks[WRIST];
@@ -320,25 +329,36 @@ export function createDigitDetector({ holdFrames = 6, closedFrames = 2 } = {}) {
 
   return {
     // `model` holds gestures the person taught, which take priority over the standard patterns.
+    // Besides the digit, it reports what it currently sees and how sure it is, so that can be
+    // shown: `certainty` rises from 0 to 1 as a pattern is held, and `confidence` is the
+    // taught model's match strength, or null when a standard finger pattern was read.
     update(landmarks, aspect = 1, model = null) {
-      const taught = model?.classify(landmarks, aspect) ?? null;
+      const match = model?.match?.(landmarks, aspect) ?? null;
+      const taught = match?.label ?? null;
       // A taught shape is judged only by what it was taught as, whatever its fingers look like.
       const reading = taught === GESTURE_CLOSED ? 'closed' : taught ? null : readFingers(landmarks, aspect);
       if (reading === 'closed') {
         candidate = null;
         candidateCount = 0;
         closedCount += 1;
-        if (closedCount < closedFrames) return { digit: null, armed };
+        const none = { seen: null, certainty: 0, confidence: null };
+        if (closedCount < closedFrames) return { digit: null, armed, ...none };
         const digit = armed;
         armed = null;
-        return { digit, armed };
+        return { digit, armed, ...none };
       }
       closedCount = 0;
       const seen = taught ?? DIGIT_BY_FINGERS[reading] ?? null;
       candidateCount = seen !== null && seen === candidate ? candidateCount + 1 : 1;
       candidate = seen;
       if (seen !== null && candidateCount >= holdFrames) armed = seen;
-      return { digit: null, armed };
+      return {
+        digit: null,
+        armed,
+        seen,
+        certainty: seen === null ? 0 : Math.min(1, candidateCount / holdFrames),
+        confidence: taught ? match.confidence : null,
+      };
     },
     reset() {
       armed = null;

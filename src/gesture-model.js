@@ -52,28 +52,36 @@ function poseDistance(a, b, xSign) {
   return worst;
 }
 
-/** `samples` maps a label to its examples. `classify` returns the best label, or null if nothing is close. */
+/**
+ * `samples` maps a label to its examples. `match` returns the best label and how confident
+ * the match is, from 1 for an exact match to 0 at the cutoff, or null if nothing is close.
+ */
 export function createGestureModel(samples = {}) {
   const examples = Object.entries(samples).flatMap(([label, list]) => list.map((features) => ({ label, features })));
 
+  function match(landmarks, aspect = 1) {
+    if (examples.length === 0) return null;
+    const features = handFeatures(landmarks, aspect);
+    if (!features) return null;
+    // Checking the mirror image too means a gesture taught on one hand works on the other.
+    const nearest = examples
+      .map(({ label, features: example }) => ({
+        label,
+        distance: Math.min(poseDistance(features, example, 1), poseDistance(features, example, -1)),
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, NEIGHBOURS);
+    if (nearest[0].distance > MATCH_DISTANCE) return null;
+    const votes = {};
+    nearest.forEach(({ label }) => { votes[label] = (votes[label] ?? 0) + 1; });
+    const label = Object.keys(votes).sort((a, b) => votes[b] - votes[a])[0];
+    const closest = nearest.find((neighbour) => neighbour.label === label).distance;
+    return { label, confidence: Math.round((1 - closest / MATCH_DISTANCE) * 100) / 100 };
+  }
+
   return {
-    classify(landmarks, aspect = 1) {
-      if (examples.length === 0) return null;
-      const features = handFeatures(landmarks, aspect);
-      if (!features) return null;
-      // Checking the mirror image too means a gesture taught on one hand works on the other.
-      const nearest = examples
-        .map(({ label, features: example }) => ({
-          label,
-          distance: Math.min(poseDistance(features, example, 1), poseDistance(features, example, -1)),
-        }))
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, NEIGHBOURS);
-      if (nearest[0].distance > MATCH_DISTANCE) return null;
-      const votes = {};
-      nearest.forEach(({ label }) => { votes[label] = (votes[label] ?? 0) + 1; });
-      return Object.keys(votes).sort((a, b) => votes[b] - votes[a])[0];
-    },
+    match,
+    classify: (landmarks, aspect = 1) => match(landmarks, aspect)?.label ?? null,
   };
 }
 
