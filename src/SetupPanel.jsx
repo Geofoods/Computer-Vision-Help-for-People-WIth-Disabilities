@@ -21,6 +21,9 @@ export function SetupPanel({ cameraOn, isDesktop, reachCapturing, reachMessage, 
             </button>
             {reachIsCustom && !reachCapturing && <button type="button" className="clear-typed inline" onClick={onResetReach}>Reset</button>}
           </div>
+          <div className={`progress-track ${reachCapturing ? 'on' : ''}`} aria-hidden="true">
+            {reachCapturing && <i className="progress-run reach-run" />}
+          </div>
           <p className="setup-message" aria-live="polite">{reachMessage}</p>
         </div>
         <div className="keybind-panel">

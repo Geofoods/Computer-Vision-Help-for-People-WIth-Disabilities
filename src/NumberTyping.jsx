@@ -34,7 +34,7 @@ function statusText(typingOn, controlOn, isDesktop, toggle) {
     : `Practice mode: typing into other apps needs the HandTap desktop app.${stop}`;
 }
 
-export function NumberTyping({ typingOn, onToggle, cameraOn, controlOn, isDesktop, hotkey, armedDigit, typed, onClear, typingToggle, onChangeToggle, soundsOn, onChangeSounds, controlToggle, gestureSamples, teaching, onTeach, onForget }) {
+export function NumberTyping({ typingOn, onToggle, cameraOn, controlOn, isDesktop, hotkey, armedDigit, typed, typedCount, onClear, typingToggle, onChangeToggle, soundsOn, onChangeSounds, controlToggle, gestureSamples, teaching, onTeach, onForget }) {
   const labelOf = (label) => (label === GESTURE_CLOSED ? 'the type gesture' : `number ${label}`);
   const teachProps = { cameraOn, teaching, onTeach, onForget };
   const toggle = TYPING_TOGGLES.find(({ id }) => id === typingToggle);
@@ -72,16 +72,20 @@ export function NumberTyping({ typingOn, onToggle, cameraOn, controlOn, isDeskto
         <div className="typing-readout">
           <div className={`armed-digit ${armedDigit !== null ? 'ready' : ''}`}>
             <small>Ready to type</small>
-            <strong>{armedDigit ?? '–'}</strong>
+            <strong key={armedDigit ?? 'none'} className={armedDigit !== null ? 'digit-pop' : ''}>{armedDigit ?? '–'}</strong>
           </div>
           <div className="typed-output">
             <small>Typed</small>
-            <output aria-live="polite">{typed || '–'}</output>
+            <output aria-live="polite">{typed ? <>{typed.slice(0, -1)}<span key={typedCount} className="typed-new">{typed.slice(-1)}</span></> : '–'}</output>
             {typed && <button type="button" className="clear-typed" onClick={onClear}>Clear</button>}
           </div>
         </div>
         <p className="typing-how">Hold a pattern until it shows above, then close your fingers into a fist to type it.</p>
         <p className="teach-status" aria-live="polite">{teachText(teaching, labelOf)}</p>
+        <div className={`progress-track ${teaching ? 'on' : ''}`} aria-hidden="true">
+          {teaching?.status === 'ready' && <i className="progress-run countdown" />}
+          {teaching?.status === 'recording' && <i style={{ transform: `scaleX(${teaching.percent / 100})` }} />}
+        </div>
         <ul className="digit-chart">
           {DIGIT_CHART.map(({ digit, label }) => (
             <li key={digit} className={`${armedDigit === digit ? 'ready' : ''} ${teaching?.label === digit ? 'teaching' : ''}`}>
