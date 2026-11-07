@@ -2,6 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles } from 'lucide-react';
 import { FilesetResolver, FaceLandmarker, HandLandmarker } from '@mediapipe/tasks-vision';
+import { createMovementDetector } from './tracking.js';
+import { loadBindings, saveBindings } from './keybinds.js';
+import { KeybindSection } from './KeybindSection.jsx';
 import './styles.css';
 
 const MODEL_URL =
@@ -36,6 +39,7 @@ function App() {
   const tongueRef = useRef(false);
   const faceLandmarksRef = useRef(null);
   const demoButtonRef = useRef(null);
+  const movementRef = useRef(createMovementDetector());
   const [cameraOn, setCameraOn] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -47,6 +51,41 @@ function App() {
   const [sensitivity, setSensitivity] = useState(50);
   const [nativeError, setNativeError] = useState('');
   const [workerReady, setWorkerReady] = useState(false);
+  const [bindings, setBindings] = useState(() => loadBindings(window.localStorage));
+  const [sendKeysOn, setSendKeysOn] = useState(false);
+  const [lastMovement, setLastMovement] = useState(null);
+
+  // The worker's message handler keeps the callbacks from when the camera started,
+  // so anything movement detection reads has to come from a ref to stay current.
+  const bindingsRef = useRef(bindings);
+  bindingsRef.current = bindings;
+  const sendKeysRef = useRef(sendKeysOn);
+  sendKeysRef.current = sendKeysOn;
+  const sensitivityRef = useRef(sensitivity);
+  sensitivityRef.current = sensitivity;
+
+  const setBinding = useCallback((id, combo) => {
+    setBindings((current) => {
+      const next = { ...current };
+      if (combo) next[id] = combo;
+      else delete next[id];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => saveBindings(window.localStorage, bindings), [bindings]);
+
+  const triggerMovement = useCallback(async (id) => {
+    setLastMovement({ id });
+    const combo = bindingsRef.current[id];
+    if (!combo || !window.handtapDesktop?.isDesktop || !sendKeysRef.current) return;
+    setNativeError('');
+    try {
+      await window.handtapDesktop.pressKeys(combo);
+    } catch (keyError) {
+      setNativeError(keyError.message || 'The shortcut could not be pressed.');
+    }
+  }, []);
 
   const moveCursor = useCallback((position) => {
     if (!window.handtapDesktop?.isDesktop) return;
@@ -118,6 +157,8 @@ function App() {
     setGesture('Camera paused');
     setConfidence(0);
     setTongueActive(false);
+    setSendKeysOn(false);
+    movementRef.current.reset();
     pinchRef.current = false;
     cursorRef.current?.classList.remove('visible');
   }, []);
@@ -190,22 +231,33 @@ function App() {
       moveCursor(screenPosition);
       const distance = Math.hypot(thumb.x - index.x, thumb.y - index.y);
       const threshold = PINCH_THRESHOLD + (sensitivity - 50) * 0.0007;
-      const isPinching = pinchRef.current
+      const video = videoRef.current;
+      const { movement, pose } = movementRef.current.update(landmarks, {
+        aspect: video.videoWidth / video.videoHeight,
+        now: performance.now(),
+        sensitivity: sensitivityRef.current,
+      });
+      // Making a bound pose can bring the index near the thumb, which shouldn't also click.
+      // Unbound poses leave clicking exactly as it is for people not using keybinds.
+      const poseIsBound = Boolean(pose && bindingsRef.current[pose]);
+      const isPinching = !poseIsBound && (pinchRef.current
         ? distance < RELEASE_THRESHOLD + (sensitivity - 50) * 0.0007
-        : distance < threshold;
+        : distance < threshold);
       setConfidence(Math.max(0, Math.min(100, Math.round((1 - distance / 0.3) * 100))));
       setGesture(isPinching ? 'Tap detected' : 'Hand ready');
       if (isPinching && !pinchRef.current) {
         triggerClick(screenPosition);
       }
       pinchRef.current = isPinching;
+      if (movement) triggerMovement(movement);
     } else {
       setGesture('Show one hand to camera');
       setConfidence(0);
+      movementRef.current.reset();
       cursorRef.current?.classList.remove('visible');
       canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
     }
-  }, [drawLandmarks, handleFace, moveCursor, sensitivity, triggerClick]);
+  }, [drawLandmarks, handleFace, moveCursor, sensitivity, triggerClick, triggerMovement]);
 
   const captureFrame = useCallback(async () => {
     const video = videoRef.current;
@@ -364,6 +416,16 @@ function App() {
           </aside>
         </div>
       </section>
+
+      <KeybindSection
+        bindings={bindings}
+        onChange={setBinding}
+        lastMovement={lastMovement}
+        sendKeysOn={sendKeysOn}
+        onToggleSendKeys={() => setSendKeysOn((value) => !value)}
+        cameraOn={cameraOn}
+        isDesktop={Boolean(window.handtapDesktop?.isDesktop)}
+      />
 
       <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally on this computer.</span></footer>
     </main>
