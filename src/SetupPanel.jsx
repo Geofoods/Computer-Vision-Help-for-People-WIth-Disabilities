@@ -24,6 +24,8 @@ export function SetupPanel({
   onChangeFilterProfile = () => {},
   overlayEnabled = true,
   onChangeOverlayEnabled = () => {},
+  eyeTracking = false,
+  onChangeEyeTracking = () => {},
 }) {
   return (
     <ScrollSection className="setup" aria-labelledby="setup-heading">
@@ -113,6 +115,22 @@ export function SetupPanel({
                 />
               </div>
             )}
+
+            <div className="setup-toggle-row">
+              <span className="field-label">Eye cursor</span>
+              <SlidingPill
+                options={[
+                  { id: false, label: 'Hand' },
+                  { id: true, label: 'Eyes' },
+                ]}
+                value={Boolean(eyeTracking)}
+                onChange={onChangeEyeTracking}
+                ariaLabel="Cursor tracking mode"
+              />
+            </div>
+            <p className="keybind-status">
+              When enabled, look around to move the cursor and double-blink to click.
+            </p>
 
             {isDesktop && (
               <div className="setup-select">

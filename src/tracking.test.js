@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { DIGIT_CHART, REACH_ZONE, computeReachZone, createDigitDetector, createFaceGestureDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, faceGestures, headPitch, headPitchStrength, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { DIGIT_CHART, REACH_ZONE, computeReachZone, createDigitDetector, createDoubleBlinkDetector, createFaceGestureDetector, createHoldDetector, createOneEuroFilter, createPinchDetector, cursorPoint, eyeGazePoint, faceGestures, headPitch, headPitchStrength, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -84,6 +84,29 @@ test('face gestures recognize expressions and fire once per expression', () => {
   assert.deepEqual(detector.update(shapes({ mouthPucker: 0.8 })), []);
   assert.deepEqual(detector.update([]), []);
   assert.deepEqual(detector.update(shapes({ mouthPucker: 0.8 })), ['kiss']);
+});
+
+test('double blink fires once for two separated blinks', () => {
+  const detector = createDoubleBlinkDetector();
+  assert.equal(detector.update(true, 100), false);
+  assert.equal(detector.update(false, 180), false);
+  assert.equal(detector.update(true, 500), true);
+  assert.equal(detector.update(false, 580), false);
+  assert.equal(detector.update(true, 700), false);
+});
+
+test('eye gaze maps iris centers to a normalized point', () => {
+  const landmarks = Array.from({ length: 478 }, () => ({ x: 0.5, y: 0.5 }));
+  landmarks[33] = { x: 0.4, y: 0.45 };
+  landmarks[133] = { x: 0.5, y: 0.45 };
+  landmarks[362] = { x: 0.5, y: 0.45 };
+  landmarks[263] = { x: 0.6, y: 0.45 };
+  [468, 469, 470, 471, 472].forEach((index) => { landmarks[index] = { x: 0.45, y: 0.45 }; });
+  [473, 474, 475, 476, 477].forEach((index) => { landmarks[index] = { x: 0.55, y: 0.45 }; });
+  const gaze = eyeGazePoint(landmarks);
+  assert.ok(gaze);
+  assert.ok(Math.abs(gaze.x - 0.5) < 0.01);
+  assert.ok(Math.abs(gaze.y - 0.5) < 0.01);
 });
 
 test('head pitch recognizes looking up and down', () => {
