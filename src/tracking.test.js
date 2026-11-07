@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { DIGIT_CHART, createDigitDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
 
 function hand({ scale = 1, gap = 0.5 } = {}) {
   const landmarks = Array.from({ length: 21 }, () => ({ x: 0.5, y: 0.5 }));
@@ -70,6 +70,65 @@ test('isLicking needs a tongue or the matching mouth shape', () => {
   assert.equal(isLicking(shapes({ jawOpen: 0.6, mouthPucker: 0.2 })), true);
   assert.equal(isLicking(shapes({ jawOpen: 0.6 })), false);
   assert.equal(isLicking(shapes({ tongueOut: 0.1, mouthPucker: 0.5 })), false);
+});
+
+// A hand raising exactly the named fingers: T, I, M, R, P.
+function fingers(raised) {
+  const x = 0.5;
+  const y = 0.5;
+  const landmarks = Array.from({ length: 21 }, () => ({ x, y }));
+  landmarks[0] = { x, y: y + 0.2 };
+  landmarks[9] = { x, y };
+  landmarks[17] = { x: x + 0.08, y: y + 0.02 };
+  landmarks[3] = { x: x - 0.08, y: y + 0.1 };
+  landmarks[4] = raised.includes('T') ? { x: x - 0.2, y: y + 0.05 } : { x: x - 0.02, y: y + 0.08 };
+  [['I', 6, 8, -0.06], ['M', 10, 12, -0.02], ['R', 14, 16, 0.02], ['P', 18, 20, 0.06]].forEach(([name, joint, tip, offset]) => {
+    landmarks[joint] = { x: x + offset, y: y - 0.08 };
+    landmarks[tip] = { x: x + offset, y: raised.includes(name) ? y - 0.18 : y - 0.02 };
+  });
+  return landmarks;
+}
+
+// Feeds each [pattern, frames] pair and returns everything typed.
+function typeWith(detector, ...steps) {
+  return steps.flatMap(([pattern, frames]) => Array.from({ length: frames }, () => detector.update(fingers(pattern)).digit)).filter((digit) => digit !== null);
+}
+
+test('every digit types from its pattern when the hand closes', () => {
+  for (const { digit, fingers: pattern } of DIGIT_CHART) {
+    assert.deepEqual(typeWith(createDigitDetector(), [pattern, 8], ['', 3]), [digit], pattern);
+  }
+});
+
+test('a digit types once however long the hand stays closed', () => {
+  assert.deepEqual(typeWith(createDigitDetector(), ['IM', 8], ['', 30]), ['2']);
+});
+
+test('the same digit can be typed twice by raising the fingers again', () => {
+  assert.deepEqual(typeWith(createDigitDetector(), ['IM', 8], ['', 3], ['IM', 8], ['', 3]), ['2', '2']);
+});
+
+test('closing a hand that held nothing long enough types nothing', () => {
+  assert.deepEqual(typeWith(createDigitDetector(), ['IM', 3], ['', 5]), []);
+});
+
+test('fingers passing through other patterns on the way down keep the held digit', () => {
+  assert.deepEqual(typeWith(createDigitDetector(), ['IMR', 8], ['IM', 2], ['I', 2], ['', 3]), ['3']);
+});
+
+test('changing to another held pattern replaces the digit', () => {
+  assert.deepEqual(typeWith(createDigitDetector(), ['IM', 8], ['IMR', 8], ['', 3]), ['3']);
+});
+
+test('a one-frame closed reading does not type', () => {
+  assert.deepEqual(typeWith(createDigitDetector(), ['IM', 8], ['', 1], ['IM', 1]), []);
+});
+
+test('reset forgets the held digit', () => {
+  const detector = createDigitDetector();
+  typeWith(detector, ['IM', 8]);
+  detector.reset();
+  assert.deepEqual(typeWith(detector, ['', 3]), []);
 });
 
 test('cursorPoint is mirrored', () => {

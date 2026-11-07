@@ -7,6 +7,12 @@ contextBridge.exposeInMainWorld('handtapDesktop', {
   scrollDown: () => ipcRenderer.invoke('handtap:scroll'),
   pressKeys: (combo) => ipcRenderer.invoke('handtap:press-keys', combo),
   getHotkey: () => ipcRenderer.invoke('handtap:hotkey'),
+  getTypingHotkey: () => ipcRenderer.invoke('handtap:typing-hotkey'),
+  onToggleTyping: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('handtap:toggle-typing', listener);
+    return () => ipcRenderer.removeListener('handtap:toggle-typing', listener);
+  },
   onToggleControl: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('handtap:toggle-control', listener);
