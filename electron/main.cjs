@@ -1,49 +1,33 @@
-const { app, BrowserWindow, session, screen, ipcMain } = require('electron');
-const { execFile } = require('node:child_process');
+const { app, BrowserWindow, globalShortcut, ipcMain, session, screen } = require('electron');
 const path = require('node:path');
+const { createMouse } = require('./mouse.cjs');
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const TOGGLE_HOTKEY = 'CommandOrControl+Alt+H';
 
-ipcMain.handle('handtap:click', async (_event, position) => {
-  if (process.platform !== 'win32') {
-    throw new Error('Native desktop clicking is currently supported on Windows.');
+// Hand tracking has to keep running while another app is in front, since that's
+// the app the user is trying to control.
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
+const mouse = createMouse();
+let mainWindow = null;
+let hotkeyRegistered = false;
+
+ipcMain.handle('handtap:click', (_event, position) => mouse.click(position));
+ipcMain.on('handtap:move', (_event, position) => {
+  try {
+    mouse.move(position);
+  } catch (error) {
+    console.warn(error.message);
   }
-
-  const x = Number(position?.x);
-  const y = Number(position?.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) {
-    throw new Error('Invalid cursor position.');
-  }
-
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  const screenX = Math.round(x * (width - 1));
-  const screenY = Math.round(y * (height - 1));
-  const script = `
-Add-Type @'
-using System;
-using System.Runtime.InteropServices;
-public static class HandTapMouse {
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int X, int Y);
-  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
-}
-'@
-[HandTapMouse]::SetCursorPos(${screenX}, ${screenY}) | Out-Null
-[HandTapMouse]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
-[HandTapMouse]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
-`;
-
-  await new Promise((resolve, reject) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], (error) => {
-      if (error) reject(new Error('Windows could not perform the desktop click.'));
-      else resolve();
-    });
-  });
 });
+ipcMain.handle('handtap:hotkey', () => (hotkeyRegistered ? 'Ctrl + Alt + H' : null));
 
 function createWindow() {
   const display = screen.getPrimaryDisplay();
   const { width, height } = display.workAreaSize;
-  const window = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: Math.min(1240, Math.max(980, width - 120)),
     height: Math.min(900, Math.max(720, height - 90)),
     minWidth: 860,
@@ -56,7 +40,11 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      backgroundThrottling: false,
     },
+  });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
   });
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -64,17 +52,28 @@ function createWindow() {
   });
 
   if (isDevelopment) {
-    window.loadURL(process.env.VITE_DEV_SERVER_URL);
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
   }
 }
 
 app.whenReady().then(() => {
   createWindow();
+  mouse.warmUp();
+  // The keyboard way out when the hand is driving the real mouse.
+  hotkeyRegistered = globalShortcut.register(TOGGLE_HOTKEY, () => {
+    mainWindow?.webContents.send('handtap:toggle-control');
+  });
+  if (!hotkeyRegistered) console.warn(`Could not register ${TOGGLE_HOTKEY}.`);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  mouse.dispose();
 });
 
 app.on('window-all-closed', () => {
