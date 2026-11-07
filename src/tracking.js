@@ -161,6 +161,17 @@ export function isLicking(blendshapes) {
   return score('tongueOut') > 0.2 || (score('jawOpen') > 0.35 && score('mouthPucker') > 0.08);
 }
 
+/** Returns the visible head tilt direction once the eye line passes a safe angle. */
+export function headTilt(landmarks, threshold = 0.2) {
+  const leftEye = landmarks?.[33];
+  const rightEye = landmarks?.[263];
+  if (!leftEye || !rightEye) return null;
+  const angle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
+  if (angle > threshold) return 'headTiltRight';
+  if (angle < -threshold) return 'headTiltLeft';
+  return null;
+}
+
 /**
  * Pinch state machine. The release threshold sits above the press threshold so a
  * hand hovering near the boundary can't fire repeated clicks, and a press must last

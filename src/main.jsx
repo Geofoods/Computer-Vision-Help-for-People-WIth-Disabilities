@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles, Power } from 'lucide-react';
-import { REACH_ZONE, createDigitDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, isLicking, pinchRatio, toScreen } from './tracking.js';
+import { REACH_ZONE, createDigitDetector, createMovementDetector, createOneEuroFilter, createPinchDetector, cursorPoint, headTilt, isLicking, pinchRatio, toScreen } from './tracking.js';
 import { TOGGLE_TYPING, loadBindings, saveBindings } from './keybinds.js';
 import { KeybindSection } from './KeybindSection.jsx';
 import { NumberTyping } from './NumberTyping.jsx';
@@ -57,6 +57,7 @@ function App() {
   const digitRef = useRef(createDigitDetector());
   const lastScrollRef = useRef(0);
   const tongueRef = useRef(false);
+  const headTiltRef = useRef(null);
   const faceLandmarksRef = useRef(null);
   const filterXRef = useRef(createOneEuroFilter());
   const filterYRef = useRef(createOneEuroFilter());
@@ -129,6 +130,7 @@ function App() {
     setGesture('Camera paused');
     setTongueActive(false);
     tongueRef.current = false;
+    headTiltRef.current = null;
     faceLandmarksRef.current = null;
     resetTracking();
   }, []);
@@ -189,6 +191,11 @@ function App() {
   const handleFace = useCallback(({ landmarks, blendshapes }) => {
     const licking = isLicking(blendshapes);
     faceLandmarksRef.current = landmarks;
+    const tilt = headTilt(landmarks);
+    if (tilt !== headTiltRef.current) {
+      headTiltRef.current = tilt;
+      if (tilt) triggerMovement(tilt);
+    }
     setTongueActive(licking);
     if (licking && !tongueRef.current) {
       setTongueLicks((value) => value + 1);
