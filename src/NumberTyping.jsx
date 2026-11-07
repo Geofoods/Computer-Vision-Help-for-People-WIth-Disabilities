@@ -55,7 +55,7 @@ export function NumberTyping({ typingOn, onToggle, cameraOn, controlOn, isDeskto
           disabled={!cameraOn}
           onClick={onToggle}
         >
-          <Power size={15} /> {typingOn ? 'Number typing is on' : 'Turn on number typing'}
+          <Power size={16} strokeWidth={1.5} /> {typingOn ? 'Number typing is on' : 'Turn on number typing'}
           {hotkey && <kbd>{hotkey}</kbd>}
         </button>
         <div className="typing-options">
@@ -85,13 +85,13 @@ export function NumberTyping({ typingOn, onToggle, cameraOn, controlOn, isDeskto
         <ul className="digit-chart">
           {DIGIT_CHART.map(({ digit, label }) => (
             <li key={digit} className={`${armedDigit === digit ? 'ready' : ''} ${teaching?.label === digit ? 'teaching' : ''}`}>
-              <strong>{digit}</strong>
+              <kbd>{digit}</kbd>
               <span>{gestureSamples[digit] ? 'Your own hand shape' : label}</span>
               <TeachControls label={digit} name={labelOf(digit)} taught={Boolean(gestureSamples[digit])} {...teachProps} />
             </li>
           ))}
           <li className={teaching?.label === GESTURE_CLOSED ? 'teaching' : ''}>
-            <strong>Type</strong>
+            <kbd>Type</kbd>
             <span>{gestureSamples[GESTURE_CLOSED] ? 'Your own hand shape' : 'Close into a fist'}</span>
             <TeachControls label={GESTURE_CLOSED} name={labelOf(GESTURE_CLOSED)} taught={Boolean(gestureSamples[GESTURE_CLOSED])} {...teachProps} />
           </li>

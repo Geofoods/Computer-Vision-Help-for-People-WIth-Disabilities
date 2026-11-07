@@ -56,7 +56,7 @@ function BindingRow({ movement, combo, flashing, onChange, reservedFor }) {
         onKeyDown={handleKeyDown}
         onBlur={() => setRecording(false)}
       >
-        <Keyboard size={15} /> {recording ? 'Press keys…' : 'Record'}
+        <Keyboard size={16} strokeWidth={1.5} /> {recording ? 'Press keys…' : 'Record'}
       </button>
     </li>
   );
