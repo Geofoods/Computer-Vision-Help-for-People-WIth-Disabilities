@@ -45,7 +45,7 @@ async function createDetector() {
     HandLandmarker.createFromOptions(fileset, {
       baseOptions: { modelAssetPath: MODEL_URL, delegate },
       runningMode: 'VIDEO',
-      numHands: 1,
+      numHands: 2,
       minHandDetectionConfidence: 0.55,
       minHandPresenceConfidence: 0.55,
       minTrackingConfidence: 0.55,
@@ -84,10 +84,16 @@ self.onmessage = async (event) => {
   if (type === 'frame' && detector) {
     const { bitmap, timestamp } = event.data;
     let landmarks = null;
+    let hands = [];
     let face;
     const t0 = performance.now();
     try {
-      landmarks = detector.detectForVideo(bitmap, timestamp).landmarks?.[0] ?? null;
+      const result = detector.detectForVideo(bitmap, timestamp);
+      hands = (result.landmarks ?? []).map((hand, index) => ({
+        landmarks: hand,
+        handedness: result.handednesses?.[index]?.[0]?.categoryName ?? null,
+      }));
+      landmarks = hands[0]?.landmarks ?? null;
       frameCount += 1;
       if (faceDetector && frameCount % FACE_FRAME_INTERVAL === 0) {
         const result = faceDetector.detectForVideo(bitmap, timestamp);
@@ -103,6 +109,13 @@ self.onmessage = async (event) => {
     }
     const inferenceMs = Math.round((performance.now() - t0) * 10) / 10;
     // Always reply, even after a failure, so the page never waits forever on a frame.
-    self.postMessage({ type: 'result', landmarks, face, inferenceMs, delegate: activeDelegate });
+    self.postMessage({
+      type: 'result',
+      landmarks,
+      hands,
+      face,
+      inferenceMs,
+      delegate: activeDelegate,
+    });
   }
 };

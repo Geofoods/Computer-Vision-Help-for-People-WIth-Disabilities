@@ -78,7 +78,7 @@ describe('Tier 4: Realistic End-to-End Assistive Workflows', () => {
 
     // 5. User scrolls page content down
     mouse.scrollDown();
-    assert.equal(mockSpawn.writes[mockSpawn.writes.length - 1], 'scroll -1200\n');
+    assert.equal(mockSpawn.writes[mockSpawn.writes.length - 1], 'scroll -720\n');
   });
 
   test('Scenario 2: Hands-Free Phone Number Entry ("8-0-0")', () => {

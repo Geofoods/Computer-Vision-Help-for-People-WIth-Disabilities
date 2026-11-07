@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('handtapDesktop', {
   scrollDown: () => ipcRenderer.invoke('handtap:scroll'),
   scrollUp: () => ipcRenderer.invoke('handtap:scroll-up'),
   scroll: (delta) => ipcRenderer.invoke('handtap:scroll', delta),
+  scrollBy: (amount) => ipcRenderer.invoke('handtap:scroll', amount),
   pressKeys: (combo) => ipcRenderer.invoke('handtap:press-keys', combo),
   emitAura: (payload) => ipcRenderer.send('handtap:emit-aura', payload),
   syncOverlay: (state) => ipcRenderer.send('handtap:sync-overlay', state),

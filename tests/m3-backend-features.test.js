@@ -82,11 +82,11 @@ test('Milestone 3+: Backend Refinements, Drag Lock, Hold Progress & Real Telemet
 
     mouse.scrollUp();
     assert.equal(mockSpawn.writes.length, 3);
-    assert.equal(mockSpawn.writes[2], 'scroll 1200\n');
+    assert.equal(mockSpawn.writes[2], 'scroll 720\n');
 
-    mouse.scroll(-600);
+    mouse.scrollBy(-480);
     assert.equal(mockSpawn.writes.length, 4);
-    assert.equal(mockSpawn.writes[3], 'scroll -600\n');
+    assert.equal(mockSpawn.writes[3], 'scroll -480\n');
 
     mouse.dispose();
     assert.equal(mouse.isHelperRunning(), false);

@@ -18,11 +18,14 @@ import {
   REACH_ZONE,
   computeReachZone,
   createDigitDetector,
+  createFaceGestureDetector,
   createHoldDetector,
   createMovementDetector,
   createOneEuroFilter,
   createPinchDetector,
   cursorPoint,
+  headPitch,
+  headPitchStrength,
   headTilt,
   isLicking,
   pinchRatio,
@@ -172,6 +175,8 @@ function App() {
   const tongueRef = useRef(false);
   const headTiltRef = useRef(null);
   const headTiltHoldRef = useRef(createHoldDetector({ holdMs: HEAD_TILT_HOLD }));
+  const headScrollRef = useRef({ id: null, last: 0 });
+  const faceGestureRef = useRef(createFaceGestureDetector());
   const faceLandmarksRef = useRef(null);
   const lastResultAtRef = useRef(0);
   const fpsEmaRef = useRef(0);
@@ -232,6 +237,7 @@ function App() {
   const [gestureSamples, setGestureSamples] = useState(() =>
     loadGestureSamples(window.localStorage),
   );
+  const [handsDetected, setHandsDetected] = useState(0);
   const [teaching, setTeaching] = useState(null);
   const [handPoint, setHandPoint] = useState(null);
 
@@ -424,6 +430,7 @@ function App() {
     }
     desktop?.syncOverlay?.({ visible: false });
     setCameraOn(false);
+    setHandsDetected(0);
     setControlOn(false);
     setTypingOn(false);
     setLiveFps(0);
@@ -433,6 +440,8 @@ function App() {
     tongueRef.current = false;
     headTiltRef.current = null;
     headTiltHoldRef.current.reset();
+    headScrollRef.current = { id: null, last: 0 };
+    faceGestureRef.current.reset();
     faceLandmarksRef.current = null;
     teachRef.current = null;
     setTeaching(null);
@@ -470,7 +479,7 @@ function App() {
   );
 
   const triggerMovement = useCallback(
-    async (id, position) => {
+    async (id, position, intensity = 1) => {
       if (teachRef.current || reachCaptureRef.current) return;
       if (typingRef.current && !id.startsWith('swipe')) return;
       setLastMovement({ id, at: performance.now() });
@@ -528,12 +537,25 @@ function App() {
             label: nextDrag ? 'Drag locked' : 'Drag released',
             detail: nextDrag ? 'Move hand to drag' : 'Button released',
           });
-        } else if (combo === 'Scroll Down') {
-          fireAura({ x: target.x, y: target.y, kind: 'scroll', label: 'Scroll down' });
-          await desktop.scrollDown();
-        } else if (combo === 'Scroll Up') {
-          fireAura({ x: target.x, y: target.y, kind: 'scroll', label: 'Scroll up' });
-          await desktop.scrollUp();
+        } else if (combo === 'Scroll Down' || combo === 'Scroll Up') {
+          const direction = combo === 'Scroll Down' ? -1 : 1;
+          const amount =
+            direction * Math.round(120 * (1 + 4 * Math.min(1, Math.max(0, intensity))));
+          fireAura({
+            x: target.x,
+            y: target.y,
+            kind: 'scroll',
+            label: combo === 'Scroll Down' ? 'Scroll down' : 'Scroll up',
+          });
+          if (intensity < 1 || id === 'headTiltUp' || id === 'headTiltDown') {
+            await desktop.scrollBy(amount);
+          } else if (combo === 'Scroll Down') {
+            await desktop.scrollDown();
+          } else if (desktop.scrollUp) {
+            await desktop.scrollUp();
+          } else {
+            await desktop.scrollBy(amount);
+          }
         } else {
           fireAura({
             x: target.x,
@@ -578,18 +600,26 @@ function App() {
     ({ landmarks, blendshapes }) => {
       const licking = isLicking(blendshapes);
       faceLandmarksRef.current = landmarks;
-      const tilt = headTilt(landmarks);
+      const pitch = headPitchStrength(landmarks);
+      const tilt = headTilt(landmarks) ?? pitch?.id ?? null;
       if (tilt !== headTiltRef.current) {
         headTiltRef.current = tilt;
         headTiltHoldRef.current.reset();
       }
-      if (headTiltHoldRef.current.update(Boolean(tilt), performance.now())) {
-        triggerMovement(tilt);
+      const now = performance.now();
+      if (headTiltHoldRef.current.update(Boolean(tilt), now)) {
+        triggerMovement(tilt, undefined, pitch?.intensity ?? 1);
+      }
+      if (pitch && headTiltHoldRef.current.hasFired() && now - headScrollRef.current.last >= 120) {
+        headScrollRef.current = { id: pitch.id, last: now };
+        triggerMovement(pitch.id, undefined, pitch.intensity);
+      }
+      for (const faceGesture of faceGestureRef.current.update(blendshapes)) {
+        triggerMovement(faceGesture);
       }
       setTongueActive(licking);
       if (licking && !tongueRef.current) {
         setTongueLicks((value) => value + 1);
-        const now = performance.now();
         if (desktop && controlRef.current && now - lastScrollRef.current > SCROLL_COOLDOWN) {
           lastScrollRef.current = now;
           triggerMovement('tongueLick');
@@ -633,7 +663,7 @@ function App() {
     context.stroke();
   };
 
-  const drawLandmarks = (landmarks, pinching) => {
+  const drawLandmarks = (landmarks, pinching, otherLandmarks = null) => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
@@ -655,10 +685,23 @@ function App() {
     context.moveTo(thumb.x * canvas.width, thumb.y * canvas.height);
     context.lineTo(index.x * canvas.width, index.y * canvas.height);
     context.stroke();
+    if (otherLandmarks) {
+      context.fillStyle = '#7dd3fc';
+      otherLandmarks.forEach(({ x, y }) => {
+        context.beginPath();
+        context.arc(x * canvas.width, y * canvas.height, 4, 0, Math.PI * 2);
+        context.fill();
+      });
+      context.strokeStyle = '#7dd3fc';
+      context.beginPath();
+      context.moveTo(otherLandmarks[4].x * canvas.width, otherLandmarks[4].y * canvas.height);
+      context.lineTo(otherLandmarks[8].x * canvas.width, otherLandmarks[8].y * canvas.height);
+      context.stroke();
+    }
   };
 
   const handleLandmarks = useCallback(
-    (landmarks, now) => {
+    (landmarks, now, otherLandmarks = null) => {
       const video = videoRef.current;
       if (!landmarks) {
         setGesture('Show one hand to camera');
@@ -710,7 +753,8 @@ function App() {
       }
       const reach = reachCaptureRef.current;
       if (reach) {
-        reach.points.push(smoothed);
+        // Capture the raw hand position so smoothing cannot shrink a person's usable range.
+        reach.points.push(point);
         if (now >= reach.until) {
           const zone = computeReachZone(reach.points);
           reachCaptureRef.current = null;
@@ -775,8 +819,10 @@ function App() {
 
       let currentArmed = null;
       if (typing && !poseIsToggle && !capturing) {
+        // When available, type from the second hand so the cursor hand remains independent.
+        const digitLandmarks = otherLandmarks ?? landmarks;
         const { digit, armed } = digitRef.current.update(
-          landmarks,
+          digitLandmarks,
           aspect,
           gestureModelRef.current,
         );
@@ -818,7 +864,7 @@ function App() {
       lastPositionRef.current = screenPosition;
       setHandPoint(smoothed);
 
-      drawLandmarks(landmarks, pinching);
+      drawLandmarks(landmarks, pinching, otherLandmarks);
       drawMouth();
       if (cursorRef.current) {
         cursorRef.current.style.left = `${smoothed.x * 100}%`;
@@ -838,7 +884,9 @@ function App() {
               : 'Hand ready';
       setGesture(nextGestureLabel);
 
-      if (desktop && controlRef.current && !typing && !capturing) {
+      // Number typing must not freeze the cursor hand. With one visible hand it also
+      // remains the typing hand, preserving the original single-hand workflow.
+      if (desktop && controlRef.current && !capturing) {
         desktop.moveTo(screenPosition);
       }
       if (justPinched) triggerMovement('indexTap', screenPosition);
@@ -924,7 +972,6 @@ function App() {
           if (data.type !== 'result') return;
           busyRef.current = false;
           if (!streamRef.current) return;
-
           const now = performance.now();
           if (lastResultAtRef.current > 0) {
             const dt = now - lastResultAtRef.current;
@@ -948,8 +995,10 @@ function App() {
             setInferenceMs(Math.round(inferenceEmaRef.current * 10) / 10);
           }
 
+          setHandsDetected(data.hands?.length ?? (data.landmarks ? 1 : 0));
           if (data.face) onFaceRef.current(data.face);
-          onLandmarksRef.current(data.landmarks, now);
+          const otherHand = data.hands?.[1]?.landmarks ?? null;
+          onLandmarksRef.current(data.landmarks, now, otherHand);
         };
         workerRef.current = worker;
       }
@@ -1260,7 +1309,10 @@ function App() {
                   )}
                   {cameraOn && (
                     <div className="tracking-label">
-                      <span className="tracking-dot" /> {gesture}
+                      <span className="tracking-dot" />{' '}
+                      {handsDetected === 2
+                        ? `Tracking 2 hands${typingOn ? ' · typing hand ready' : ` · ${gesture}`}`
+                        : gesture}
                     </div>
                   )}
                 </div>
