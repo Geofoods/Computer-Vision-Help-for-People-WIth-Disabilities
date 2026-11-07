@@ -1,0 +1,208 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { Hand, Camera, MousePointer2, Settings2, CircleHelp, Check, AlertCircle, Sparkles } from 'lucide-react';
+import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+import './styles.css';
+
+const MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const WASM_URL = '/wasm';
+const PINCH_THRESHOLD = 0.105;
+const RELEASE_THRESHOLD = 0.15;
+const CLICK_COOLDOWN = 500;
+
+function App() {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const detectorRef = useRef(null);
+  const frameRef = useRef(null);
+  const pinchRef = useRef(false);
+  const lastClickRef = useRef(0);
+  const demoButtonRef = useRef(null);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [gesture, setGesture] = useState('Waiting for camera');
+  const [confidence, setConfidence] = useState(0);
+  const [clicks, setClicks] = useState(0);
+  const [sensitivity, setSensitivity] = useState(50);
+
+  const stopCamera = useCallback(() => {
+    if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    if (streamRef.current) streamRef.current.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setCameraOn(false);
+    setGesture('Camera paused');
+    setConfidence(0);
+    pinchRef.current = false;
+  }, []);
+
+  const triggerClick = useCallback(() => {
+    const now = performance.now();
+    if (now - lastClickRef.current < CLICK_COOLDOWN) return;
+    lastClickRef.current = now;
+    setClicks((value) => value + 1);
+    demoButtonRef.current?.click();
+  }, []);
+
+  const drawLandmarks = (landmarks) => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const context = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#9b8cff';
+    landmarks.forEach(({ x, y }) => {
+      context.beginPath();
+      context.arc(x * canvas.width, y * canvas.height, 5, 0, Math.PI * 2);
+      context.fill();
+    });
+    const thumb = landmarks[4];
+    const index = landmarks[8];
+    if (thumb && index) {
+      context.strokeStyle = pinchRef.current ? '#67e8a4' : '#f2b84b';
+      context.lineWidth = 4;
+      context.beginPath();
+      context.moveTo(thumb.x * canvas.width, thumb.y * canvas.height);
+      context.lineTo(index.x * canvas.width, index.y * canvas.height);
+      context.stroke();
+    }
+  };
+
+  const detect = useCallback(() => {
+    const video = videoRef.current;
+    const detector = detectorRef.current;
+    if (!video || !detector || video.readyState < 2) {
+      frameRef.current = requestAnimationFrame(detect);
+      return;
+    }
+    const result = detector.detectForVideo(video, performance.now());
+    const landmarks = result.landmarks?.[0];
+    if (landmarks) {
+      drawLandmarks(landmarks);
+      const thumb = landmarks[4];
+      const index = landmarks[8];
+      const distance = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+      const threshold = PINCH_THRESHOLD + (sensitivity - 50) * 0.0007;
+      const isPinching = pinchRef.current
+        ? distance < RELEASE_THRESHOLD + (sensitivity - 50) * 0.0007
+        : distance < threshold;
+      setConfidence(Math.max(0, Math.min(100, Math.round((1 - distance / 0.3) * 100))));
+      setGesture(isPinching ? 'Tap detected' : 'Hand ready');
+      if (isPinching && !pinchRef.current) triggerClick();
+      pinchRef.current = isPinching;
+    } else {
+      setGesture('Show one hand to camera');
+      setConfidence(0);
+      canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    }
+    frameRef.current = requestAnimationFrame(detect);
+  }, [sensitivity, triggerClick]);
+
+  const startCamera = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false });
+      streamRef.current = stream;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      const vision = await FilesetResolver.forVisionTasks(WASM_URL);
+      detectorRef.current = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numHands: 1,
+        minHandDetectionConfidence: 0.55,
+        minHandPresenceConfidence: 0.55,
+        minTrackingConfidence: 0.55,
+      });
+      setCameraOn(true);
+      setGesture('Show one hand to camera');
+      frameRef.current = requestAnimationFrame(detect);
+    } catch (cameraError) {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      setError(cameraError.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access in your browser and try again.'
+        : 'We could not start the camera. Make sure this page is running on HTTPS or localhost.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  return (
+    <main className="app-shell">
+      <header className="topbar">
+        <a className="brand" href="/">
+          <span className="brand-mark"><Hand size={21} strokeWidth={2.5} /></span>
+          <span>hand<span>tap</span></span>
+        </a>
+        <div className="topbar-actions">
+          <span className="privacy-pill"><span className="privacy-dot" /> Camera stays on this device</span>
+          <button className="icon-button" aria-label="Help"><CircleHelp size={20} /></button>
+        </div>
+      </header>
+
+      <section className="hero">
+        <div className="hero-copy">
+          <div className="eyebrow"><Sparkles size={15} /> Accessible interaction</div>
+          <h1>Click with a<br /><em>simple tap.</em></h1>
+          <p>Use your camera to turn a thumb-and-index finger tap into a click. No mouse or touchpad required.</p>
+          <div className="how-it-works">
+            <div className="step"><span>1</span><div><strong>Start your camera</strong><small>Allow access when asked</small></div></div>
+            <div className="step"><span>2</span><div><strong>Tap thumb + index</strong><small>Hold briefly, then release</small></div></div>
+            <div className="step"><span>3</span><div><strong>See it click</strong><small>Works on the demo below</small></div></div>
+          </div>
+        </div>
+
+        <div className="camera-card">
+          <div className="camera-header">
+            <div><span className={`status-dot ${cameraOn ? 'live' : ''}`} /> {cameraOn ? 'Camera active' : 'Camera preview'}</div>
+            <span className="live-label">{cameraOn ? 'LIVE' : 'READY'}</span>
+          </div>
+          <div className="camera-view">
+            <video ref={videoRef} className={cameraOn ? 'visible' : ''} playsInline muted />
+            <canvas ref={canvasRef} />
+            {!cameraOn && <div className="camera-placeholder"><div className="camera-icon"><Camera size={28} /></div><strong>Your hand will appear here</strong><span>Position your hand clearly in view</span></div>}
+            {cameraOn && <div className="tracking-label"><span className="tracking-dot" /> Tracking hand</div>}
+          </div>
+          {error && <div className="error-message"><AlertCircle size={16} /> {error}</div>}
+          <button className={`camera-button ${cameraOn ? 'stop' : ''}`} onClick={cameraOn ? stopCamera : startCamera} disabled={loading}>
+            {loading ? 'Loading hand tracking…' : cameraOn ? 'Pause camera' : 'Start camera'}
+          </button>
+        </div>
+      </section>
+
+      <section className="workspace">
+        <div className="section-heading"><div><p className="eyebrow">Live feedback</p><h2>Make a test click</h2></div><div className="click-count"><MousePointer2 size={16} /> {clicks} clicks</div></div>
+        <div className="feedback-grid">
+          <div className="demo-panel">
+            <p className="panel-label">Interaction area</p>
+            <button ref={demoButtonRef} className="demo-button" onClick={() => undefined}>
+              <MousePointer2 size={23} />
+              <span>Tap here with your fingers</span>
+              <small>The button will activate when you pinch</small>
+            </button>
+            <div className="success-note"><Check size={16} /> Your clicks happen right in the browser</div>
+          </div>
+          <aside className="status-panel">
+            <p className="panel-label">Gesture status</p>
+            <div className={`gesture-state ${gesture === 'Tap detected' ? 'detected' : ''}`}><span className="state-icon"><Hand size={22} /></span><div><strong>{gesture}</strong><small>{cameraOn ? 'Keep your hand in frame' : 'Start the camera to begin'}</small></div></div>
+            <div className="meter-row"><span>Pinch strength</span><strong>{confidence}%</strong></div>
+            <div className="meter"><span style={{ width: `${confidence}%` }} /></div>
+            <div className="settings-title"><Settings2 size={15} /> Sensitivity <strong>{sensitivity}%</strong></div>
+            <input aria-label="Gesture sensitivity" type="range" min="20" max="80" value={sensitivity} onChange={(event) => setSensitivity(Number(event.target.value))} />
+          </aside>
+        </div>
+      </section>
+
+      <footer><span>handtap is designed for privacy and ease of use.</span><span>Processing happens locally in your browser.</span></footer>
+    </main>
+  );
+}
+
+createRoot(document.getElementById('root')).render(<App />);
