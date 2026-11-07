@@ -138,13 +138,20 @@ function App() {
     }
   }, []);
 
-  const triggerMovement = useCallback(async (id) => {
+  const triggerMovement = useCallback(async (id, position) => {
     setLastMovement({ id });
     const combo = bindingsRef.current[id];
     if (!combo || !desktop || !controlRef.current) return;
     setNativeError('');
     try {
-      await desktop.pressKeys(combo);
+      if (combo === 'Left Click') {
+        setClicks((value) => value + 1);
+        await desktop.clickAt(position);
+      } else if (combo === 'Scroll Down') {
+        await desktop.scrollDown();
+      } else {
+        await desktop.pressKeys(combo);
+      }
     } catch (keyError) {
       setNativeError(keyError.message || 'The shortcut could not be pressed.');
     }
@@ -159,13 +166,14 @@ function App() {
       const now = performance.now();
       if (desktop && controlRef.current && now - lastScrollRef.current > SCROLL_COOLDOWN) {
         lastScrollRef.current = now;
-        desktop.scrollDown().catch((scrollError) => {
+        if (bindingsRef.current.tongueLick) triggerMovement('tongueLick');
+        else desktop.scrollDown().catch((scrollError) => {
           setNativeError(scrollError.message || 'The page could not be scrolled.');
         });
       }
     }
     tongueRef.current = licking;
-  }, []);
+  }, [triggerMovement]);
   onFaceRef.current = handleFace;
 
   // Drawn after the hand, which clears the canvas, on every frame so it doesn't flicker
@@ -249,7 +257,10 @@ function App() {
     setGesture(pinching ? 'Tap detected' : 'Hand ready');
 
     if (desktop && controlRef.current) desktop.moveTo(screenPosition);
-    if (justPinched) triggerClick(screenPosition);
+    if (justPinched) {
+      if (bindingsRef.current.indexTap) triggerMovement('indexTap', screenPosition);
+      else triggerClick(screenPosition);
+    }
     if (movement) triggerMovement(movement);
   }, [triggerClick, triggerMovement]);
   onLandmarksRef.current = handleLandmarks;

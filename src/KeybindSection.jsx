@@ -17,7 +17,7 @@ function BindingRow({ movement, combo, flashing, onChange }) {
   const handleKeyDown = (event) => {
     if (!recording) return;
     event.preventDefault();
-    // Esc always leaves recording, so the keyboard can't get stuck here. It's still a preset.
+    // Esc always leaves recording, so the keyboard can't get stuck here.
     if (event.code === 'Escape') {
       setRecording(false);
       return;
