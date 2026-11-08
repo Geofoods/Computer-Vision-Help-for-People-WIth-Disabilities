@@ -2,7 +2,7 @@
 
 **Control your computer with the movements you're able to make.**
 
-HandTap turns a webcam into a mouse and number pad using AI that runs entirely on your own computer. Instead of asking people to fit a fixed set of gestures, it learns the hand shapes and the range of movement that work for each person's body.
+HandTap turns a webcam into a mouse and number pad using AI that runs entirely on your own computer ([watch the 1-minute film](#launch-film)). Instead of asking people to fit a fixed set of gestures, it learns the hand shapes and the range of movement that work for each person's body.
 
 ![HandTap's number typing section, showing the finger chart and a number ready to type](docs/images/number-typing.png)
 
@@ -111,7 +111,11 @@ If you see `Electron failed to install correctly`, delete `node_modules/electron
 
 ## Launch film
 
-[`docs/launch-film.html`](docs/launch-film.html) is a 62-second motion piece about HandTap, drawn live on a canvas. It covers tremor smoothing, clicking and dragging, reach calibration, teaching gestures, two-hand number typing, shortcuts and the eye cursor. Open it in a browser and press Space to play, H to hide the controls and F for fullscreen, which gives a clean frame for screen recording.
+[![HandTap's launch film: click to watch](docs/images/launch-film-poster.png)](docs/handtap-launch-film.mp4)
+
+**[Watch the launch film](docs/handtap-launch-film.mp4)** (62 seconds, 1080p, with sound). It covers tremor smoothing, clicking and dragging, reach calibration, teaching gestures, two-hand number typing, shortcuts and the eye cursor.
+
+The film is drawn live by [`docs/launch-film.html`](docs/launch-film.html), so it can be edited like any other code. Open it in a browser and press Space to play, H to hide the controls and F for fullscreen.
 
 ## Testing
 
