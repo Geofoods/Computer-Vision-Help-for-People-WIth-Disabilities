@@ -127,3 +127,4 @@ export function FilmModal({ isOpen, onClose }) {
     </AnimatePresence>
   );
 }
+

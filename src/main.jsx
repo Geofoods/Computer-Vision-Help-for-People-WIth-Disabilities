@@ -90,6 +90,7 @@ import { DualLayerButton } from './components/DualLayerButton.jsx';
 import { TelemetryHud } from './components/TelemetryHud.jsx';
 import { VisionAura } from './components/VisionAura.jsx';
 import { FilmModal } from './components/FilmModal.jsx';
+import { LaunchFilmSection } from './components/LaunchFilmSection.jsx';
 import { ScrollSection } from './components/ScrollSection.jsx';
 import { FluidHoverHighlight } from './components/FluidHoverHighlight.jsx';
 import { useFluidHover } from './hooks/useFluidHover.js';
@@ -1518,6 +1519,9 @@ function App() {
               </HudFrame>
             </div>
           </section>
+
+          {/* Inline Launch Film Motion Showcase */}
+          <LaunchFilmSection />
 
           <ScrollSection aria-labelledby="practice-heading">
             <div className="section-heading">
