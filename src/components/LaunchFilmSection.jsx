@@ -28,7 +28,7 @@ export function LaunchFilmSection({ className = '', ...props }) {
             <Film size={12} strokeWidth={1.8} />
             <span>Launch film</span>
             <span className="showcase-badge-sep" aria-hidden="true">·</span>
-            <span className="showcase-badge-meta">62s · 1080p 60fps</span>
+            <span className="showcase-badge-meta">67s · 1080p 60fps</span>
           </div>
           <h2 id="showcase-heading">Watch HandTap in motion</h2>
           <p className="showcase-description">

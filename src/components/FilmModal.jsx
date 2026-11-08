@@ -65,7 +65,7 @@ export function FilmModal({ isOpen, onClose }) {
                 <div>
                   <h3 id="film-modal-title">HandTap — Spatial Launch Film</h3>
                   <span className="film-subtitle">
-                    62s · 1080p 60fps · Spatial Sound
+                    67s · 1080p 60fps · Spatial Sound
                   </span>
                 </div>
               </div>
