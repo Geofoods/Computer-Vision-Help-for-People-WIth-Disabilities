@@ -1285,20 +1285,28 @@ function createAudio() {
   const noise = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
   const ch = noise.getChannelData(0);
   for (let i = 0; i < ch.length; i += 1) ch[i] = Math.random() * 2 - 1;
-  const env = (g, peak, attack, decay, at) => { g.gain.setValueAtTime(0.0001, at); g.gain.exponentialRampToValueAtTime(peak, at + attack); g.gain.exponentialRampToValueAtTime(0.0001, at + attack + decay); };
-  const sine = (f, peak, decay, at, f2) => { const o = ac.createOscillator(); const g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(f, at); if (f2) o.frequency.exponentialRampToValueAtTime(f2, at + decay); env(g, peak, 0.004, decay, at); o.connect(g).connect(master); o.start(at); o.stop(at + decay + 0.05); };
-  const burst = (type, f, q, peak, decay, at, f2) => { const s = ac.createBufferSource(); s.buffer = noise; const b = ac.createBiquadFilter(); b.type = type; b.frequency.setValueAtTime(f, at); if (f2) b.frequency.exponentialRampToValueAtTime(f2, at + decay); b.Q.value = q; const g = ac.createGain(); env(g, peak, 0.004, decay, at); s.connect(b).connect(g).connect(master); s.start(at); s.stop(at + decay + 0.05); };
+  // Soft, bubbly SFX tuned to F major pentatonic (matches the film's score).
+  const soft = ac.createBiquadFilter(); soft.type = 'lowpass'; soft.frequency.value = 5000; soft.Q.value = 0.5; soft.connect(master);
+  const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  const PENT = [77, 79, 81, 84, 86, 89];
+  let keyIdx = 0;
+  const panned = (pan) => { if (!ac.createStereoPanner) return soft; const p = ac.createStereoPanner(); p.pan.value = pan; p.connect(soft); return p; };
+  // a "bubble": sine that glides up into its note with a soft attack and round decay
+  const bubble = (f, peak, decay, at, pan = 0) => { const o = ac.createOscillator(); const g = ac.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(f * 0.72, at); o.frequency.exponentialRampToValueAtTime(f, at + decay * 0.7); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(peak, at + 0.006); g.gain.setTargetAtTime(0, at + 0.006, decay); o.connect(g).connect(panned(pan)); o.start(at); o.stop(at + decay * 8); };
+  // a soft mallet/bell tone: fundamental plus quickly fading overtones
+  const tone = (f, peak, decay, at, pan = 0, overtones = [[2, 0.25, 0.06], [4, 0.12, 0.02]]) => { const out = panned(pan); [[1, 1, decay], ...overtones].forEach(([k, amt, d]) => { const o = ac.createOscillator(); const g = ac.createGain(); o.type = 'sine'; o.frequency.value = f * k; g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(peak * amt, at + 0.006); g.gain.setTargetAtTime(0, at + 0.006, d); o.connect(g).connect(out); o.start(at); o.stop(at + d * 8); }); };
+  const swell = (peak, at) => { const s = ac.createBufferSource(); s.buffer = noise; const b = ac.createBiquadFilter(); b.type = 'lowpass'; b.Q.value = 0.5; b.frequency.setValueAtTime(250, at); b.frequency.exponentialRampToValueAtTime(1400, at + 0.3); const g = ac.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(peak, at + 0.12); g.gain.setTargetAtTime(0, at + 0.12, 0.18); s.connect(b).connect(g).connect(soft); s.start(at); s.stop(at + 0.5); };
   return {
     ac,
     play(kind) {
       const at = ac.currentTime + 0.005;
-      if (kind === 'tick') { burst('bandpass', 4200, 6, 0.018, 0.022, at); sine(2600, 0.008, 0.03, at, 1800); }
-      if (kind === 'click') { burst('bandpass', 3200, 5, 0.03, 0.03, at); sine(1900, 0.018, 0.05, at, 900); }
-      if (kind === 'key') { burst('bandpass', 2400, 4, 0.03, 0.035, at); sine(1200, 0.012, 0.05, at, 700); }
-      if (kind === 'lock') { sine(660, 0.02, 0.9, at); sine(990, 0.01, 0.7, at + 0.02); burst('bandpass', 3000, 5, 0.012, 0.03, at); }
-      if (kind === 'chime') { sine(880, 0.018, 1.1, at); sine(1320, 0.01, 0.9, at + 0.06); sine(1760, 0.005, 0.7, at + 0.1); }
-      if (kind === 'shimmer') { sine(2400, 0.006, 0.5, at, 3200); sine(3100, 0.004, 0.45, at + 0.03, 4000); }
-      if (kind === 'swish') { burst('lowpass', 500, 0.8, 0.012, 0.35, at, 3200); }
+      if (kind === 'tick') bubble(mtof(84), 0.014, 0.035, at, (Math.random() - 0.5) * 0.4);
+      if (kind === 'click') { bubble(mtof(77), 0.028, 0.06, at); bubble(mtof(65), 0.014, 0.08, at + 0.012); }
+      if (kind === 'key') { const f = mtof(PENT[keyIdx++ % 4]); tone(f, 0.022, 0.25, at, keyIdx % 2 ? -0.25 : 0.25); bubble(f, 0.008, 0.03, at); }
+      if (kind === 'lock') { bubble(mtof(77), 0.024, 0.09, at, -0.2); bubble(mtof(84), 0.021, 0.12, at + 0.1, 0.2); }
+      if (kind === 'chime') [77, 81, 84].forEach((m, i) => tone(mtof(m), 0.015, 0.6, at + i * 0.08, (i - 1) * 0.35, [[2, 0.18, 0.15], [3, 0.06, 0.08]]));
+      if (kind === 'shimmer') for (let i = 0; i < 5; i += 1) bubble(mtof(PENT[1 + i % 5] + (i > 2 ? 12 : 0)), 0.005, 0.03, at + i * 0.035 + Math.random() * 0.01, (Math.random() - 0.5) * 0.8);
+      if (kind === 'swish') swell(0.014, at);
     },
   };
 }
