@@ -111,7 +111,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: Math.min(1320, Math.max(980, width - 96)),
     height: Math.min(920, Math.max(720, height - 72)),
-    minWidth: 860,
+    minWidth: 900,
     minHeight: 680,
     title: 'HandTap',
     backgroundColor: '#171717',

@@ -19,9 +19,9 @@ export function ScrollSection({ children, className = '', ...props }) {
   return (
     <motion.section
       className={`workspace ${className}`.trim()}
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 12 }}
       whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, amount: 0.14 }}
+      viewport={{ once: true, amount: 0.04 }}
       transition={{
         opacity: { duration: 0.28, ease: [0.22, 1, 0.36, 1] },
         y: spring.slow,
