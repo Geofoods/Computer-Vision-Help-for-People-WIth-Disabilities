@@ -148,7 +148,7 @@ const C = {
   cob: '#6b97ff', sky: '#7dd3fc', amb: '#e5a00d',
   glass: 'rgba(28,30,36,0.86)', glassEdge: 'rgba(255,255,255,0.16)',
 };
-const LIGHT = { bg: '#fafafa', s1: '#ffffff', s2: '#ffffff', s3: '#f2f2f4', hair: 'rgba(17,17,19,0.08)', ring: 'rgba(17,17,19,0.14)', t1: '#111113', t2: '#4b5160', t3: '#7a8090', shadow: 'rgba(17,17,19,0.10)', rim: 'rgba(255,255,255,0.9)' };
+const LIGHT = { bg: '#fafafa', s1: '#ffffff', s2: '#ffffff', s3: '#f4f4f6', hair: 'rgba(15,23,42,0.08)', ring: 'rgba(15,23,42,0.14)', t1: '#14171f', t2: '#4c5363', t3: '#687082', shadow: 'rgba(15,23,42,0.10)', rim: 'rgba(255,255,255,0.9)' };
 const DARK = { bg: C.chassis, s1: C.s1, s2: C.s2, s3: C.s3, hair: C.hair, ring: C.ring, t1: C.t1, t2: C.t2, t3: C.t3, shadow: 'rgba(0,0,0,0.5)', rim: 'rgba(255,255,255,0.08)' };
 
 /* ───────────── Math & motion physics ───────────── */
@@ -371,8 +371,15 @@ function gravityField(rect, pts, alpha = 1, spacing = 34) {
       const fy = lerp(Math.sin(base), sy / (Math.hypot(sx, sy) || 1), inf);
       const n = Math.hypot(fx, fy) || 1;
       const len = (spacing * 0.2) + spacing * 0.36 * inf;
-      A(alpha * (0.16 + 0.7 * inf));
-      ctx.strokeStyle = inf > 0.35 ? C.em : C.t3;
+      // Same palette split as the app's GravityField: 46% emerald, 38% cobalt, 16% amber; slate at rest.
+      const mix = ((Math.sin(r * 12.9898 + c * 78.233) * 43758.5453) % 1 + 1) % 1;
+      if (inf > 0.35) {
+        A(alpha * (0.16 + 0.7 * inf));
+        ctx.strokeStyle = mix < 0.46 ? C.em : mix < 0.84 ? C.cob : '#f2b84b';
+      } else {
+        A(alpha * (0.16 + 0.7 * inf) * 0.65);
+        ctx.strokeStyle = 'rgb(148,160,184)';
+      }
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(px - (fx / n) * len / 2, py - (fy / n) * len / 2);
@@ -449,13 +456,30 @@ function glassPill(cx, y, label, dotColor, e, o = {}) {
   T(label, cx - w / 2 + 42, y + h / 2 + 1, { size, weight: 500, base: 'middle', color: C.t1 });
   ctx.restore(); A(1);
 }
+// The app's brand mark: Lucide's Hand icon, knocked out of a text-coloured tile (light tile in dark theme, dark tile in light).
+const HAND_ICON = [
+  'M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2',
+  'M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2',
+  'M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8',
+  'M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15',
+].map((d) => new Path2D(d));
 function logoMark(cx, cy, s, theme = DARK) {
-  card(cx - s / 2, cy - s / 2, s, s, s * 0.27, { fill: theme === DARK ? C.s3 : '#111113', stroke: theme.ring, blur: 24, oy: 8 });
-  ctx.lineCap = 'round'; ctx.strokeStyle = '#f2f4f8'; ctx.lineWidth = s * 0.085;
-  [[-0.17, 0.2], [0, 0.29], [0.17, 0.22]].forEach(([dx, hgt]) => {
-    ctx.beginPath(); ctx.moveTo(cx + dx * s, cy + s * 0.2); ctx.lineTo(cx + dx * s, cy + s * 0.2 - hgt * s); ctx.stroke();
-  });
-  dot(cx - 0.17 * s, cy - s * 0.2, s * 0.06, C.em);
+  const tile = theme === DARK ? DARK.t1 : LIGHT.t1;
+  const glyph = theme === DARK ? C.chassis : '#ffffff';
+  card(cx - s / 2, cy - s / 2, s, s, s * 0.22, { fill: tile, stroke: 'rgba(0,0,0,0.12)', blur: 24, oy: 8, shadowColor: 'rgba(0,0,0,0.35)', rim: false });
+  const k = (s * 0.54) / 24;
+  ctx.save(); ctx.translate(cx - 12 * k, cy - 12 * k); ctx.scale(k, k);
+  ctx.strokeStyle = glyph; ctx.lineWidth = 1.75; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  HAND_ICON.forEach((p) => ctx.stroke(p));
+  ctx.restore();
+}
+// The app's section marker: cobalt mono number · muted label, sentence case.
+function sectionIndex(x, y, n, label, theme = DARK) {
+  const num = String(n).padStart(2, '0');
+  T(num, x, y, { mono: true, size: 15, weight: 500, color: C.cob });
+  const nw = TW(num, { mono: true, size: 15, weight: 500 });
+  T('·', x + nw + 9, y, { size: 16, color: theme.t3 });
+  T(label, x + nw + 24, y, { size: 16, weight: 500, color: theme.t2 });
 }
 
 /* ───────────── Scene 1 · Premise ───────────── */
@@ -478,7 +502,7 @@ function scene1(t) {
     ctx.restore();
     // Beat 2
     const e2 = Q(t, 3.3, 0.85);
-    reveal('Software that adapts to your body instead.', W / 2, 580, { size: 88, weight: 600, align: 'center', color: C.t1, alpha: 1 - out }, e2);
+    reveal('Software that adapts to your body instead.', W / 2, 580, { size: 88, weight: 700, align: 'center', color: C.t1, alpha: 1 - out }, e2);
   }
   // Beat 3: lockup
   const e3 = SS(t, 5.2);
@@ -530,7 +554,7 @@ function scene2(t) {
     card(STAGE.x, STAGE.y, STAGE.w, STAGE.h, 28, { fill: C.s1, stroke: C.ring, blur: 60, oy: 30 });
     // Header
     const he = Q(t, 7.15, 0.7);
-    reveal('Hero gravity field', 180, 150, { size: 22, weight: 600 }, he);
+    A(he); sectionIndex(180, 150, 1, 'Spatial hand control'); A(1);
     A(he); monoTag('21 LANDMARKS · LIVE', 1150, 126, { align: 'right', dot: C.em, size: 13 }); A(1);
     // Field, tilted
     const fe = SS(t, 7.25);
@@ -692,7 +716,7 @@ function scene3(t) {
   });
   // HUD in screen space
   const ue = Q(t, 16.4, 0.7) * (1 - Q(t, 25.6, 0.4));
-  if (ue > 0) { A(ue); monoTag('VISIONAURA · OS OVERLAY', W - 120, 64, { align: 'right', dot: C.em, size: 13, fill: C.glass, stroke: C.glassEdge }); A(1); }
+  if (ue > 0) { A(ue); monoTag('SPATIAL AURA · SYSTEM OVERLAY', W - 120, 64, { align: 'right', dot: C.em, size: 13, fill: C.glass, stroke: C.glassEdge }); A(1); }
   caption('Click, drag and dwell across every app — on Windows and macOS.', t, 16.8);
 }
 
@@ -706,7 +730,7 @@ function scene4(t) {
     if (partA < 1) ctx.filter = `blur(${((1 - partA) * 6).toFixed(2)}px)`;
     ctx.translate(-(1 - partA) * 80, 0);
     const ae = SS(t, 26.15);
-    reveal('Your comfortable reach becomes the whole screen', 140, 140, { size: 44, weight: 600 }, Q(t, 26.2, 0.8));
+    sectionIndex(140, 84, 3, 'Personal calibration'); reveal('Your comfortable reach becomes the whole screen', 140, 140, { size: 44, weight: 700 }, Q(t, 26.2, 0.8));
     // camera well
     const cx = 140, cy = 220, cw = 760, ch = 560;
     A(partA * clamp(ae));
@@ -773,9 +797,9 @@ function scene4(t) {
     ctx.translate(0, (1 - be) * 40);
     const x = 300, y = 140, w = 1320, h = 760;
     card(x, y, w, h, 26, { fill: C.s2, blur: 70, oy: 30 });
-    T('Teach Custom Gesture', x + 44, y + 70, { size: 38, weight: 600 });
+    T('Teach a gesture', x + 44, y + 70, { size: 38, weight: 700 });
     T('Hold any shape that is comfortable. HandTap learns it on this device.', x + 44, y + 108, { size: 18, color: C.t2 });
-    monoTag('KNN CLASSIFIER · LOCAL', x + w - 44, y + 46, { align: 'right', dot: C.em, size: 13 });
+    monoTag('LEARNS ON THIS DEVICE', x + w - 44, y + 46, { align: 'right', dot: C.em, size: 13 });
     // preview well
     const px = x + 44, py = y + 150, pw = 560, ph = 560;
     card(px, py, pw, ph, 18, { fill: C.well, shadow: false });
@@ -880,7 +904,7 @@ function scene5(t) {
     ctx.save(); A(clamp(le)); ctx.translate(0, (1 - le) * 30);
     const lx = 100, ly = 120, lw = 840, lh = 820;
     card(lx, ly, lw, lh, 26, { fill: C.s2 });
-    T('Two-hand mode', lx + 36, ly + 60, { size: 30, weight: 600 });
+    T('Two-hand mode', lx + 36, ly + 60, { size: 30, weight: 700 });
     T('The cursor hand holds still. The other hand types.', lx + 36, ly + 94, { size: 17, color: C.t2 });
     const wx = lx + 30, wy = ly + 130, ww = lw - 60, wh = 470;
     card(wx, wy, ww, wh, 16, { fill: C.well, shadow: false });
@@ -933,12 +957,12 @@ function scene5(t) {
     ctx.save(); A(clamp(re)); ctx.translate(0, (1 - re) * 30);
     const rx = 980, ry = 120, rw = 840, rh = 820;
     card(rx, ry, rw, rh, 26, { fill: C.s2 });
-    T('Shortcut matrix', rx + 36, ry + 60, { size: 30, weight: 600 });
+    T('Turn movements into shortcuts', rx + 36, ry + 60, { size: 30, weight: 700 });
     monoTag('19 CONTROLS', rx + rw - 36, ry + 38, { align: 'right', size: 13, dot: C.em });
     const hoverRow = springSteps(t, HOVER, SM);
     const activeRow = HOVER.reduce((acc, [tt, r]) => (t >= tt ? r : acc), 0);
     const catPos = springSteps(t, HOVER.map(([tt, r]) => [tt, ROWS[r].cat]), SM);
-    slidingPill(rx + 36, ry + 92, ['Hand', 'Face', 'Head', 'Swipes'], catPos, { segW: 120 });
+    slidingPill(rx + 36, ry + 92, ['Hand', 'Face', 'Head', 'Movements'], catPos, { segW: 120 });
     const listY = ry + 170, rowH = 74;
     // proximity highlight
     card(rx + 24, listY + hoverRow * rowH, rw - 48, rowH - 8, 14, { fill: C.s3, stroke: C.ring, shadow: false });
@@ -1036,7 +1060,7 @@ function sceneEye(t) {
   ctx.save(); A(clamp(le)); ctx.translate(0, (1 - le) * 30);
   const lx = 100, ly = 120, lw = 700, lh = 820;
   card(lx, ly, lw, lh, 26, { fill: C.s2 });
-  T('Eye cursor', lx + 36, ly + 60, { size: 30, weight: 600 });
+  T('Eye cursor', lx + 36, ly + 60, { size: 30, weight: 700 });
   T('For when using your hands isn’t an option.', lx + 36, ly + 94, { size: 17, color: C.t2 });
   slidingPill(lx + 36, ly + 122, ['Hand', 'Eyes'], springSteps(t, [[0, 0], [47.45, 1]], SM), { segW: 120 });
   const wx = lx + 30, wy = ly + 196, ww = lw - 60, wh = 430;
@@ -1122,7 +1146,7 @@ function appShell(t, th, radius, shapePos, themePos) {
   mods.forEach((m) => card(m.x, m.y, m.w, m.h, radius, { fill: th.s2, stroke: th.hair, shadowColor: th.shadow, blur: 30, oy: 12, rimColor: th.rim, light }));
   // module 1: field
   const m1 = mods[0];
-  T('Gravity field', m1.x + 28, m1.y + 46, { size: 20, weight: 600, color: th.t1 });
+  T('Live hand tracking', m1.x + 28, m1.y + 46, { size: 20, weight: 600, color: th.t1 });
   ctx.save(); rr(m1.x + 20, m1.y + 70, m1.w - 40, m1.h - 90, Math.max(2, radius - 6)); ctx.clip();
   ctx.fillStyle = light ? '#f2f2f4' : C.well; ctx.fillRect(m1.x + 20, m1.y + 70, m1.w - 40, m1.h - 90);
   const hp = handPts({ x: m1.x + m1.w / 2 + Math.sin(t * 0.6) * 40, y: m1.y + m1.h - 90, s: 190, rot: Math.sin(t * 0.5) * 0.1, curl: [0.05, 0.1, 0.2, 0.25] });
@@ -1141,7 +1165,7 @@ function appShell(t, th, radius, shapePos, themePos) {
   slidingPill(m2.x + 28, m2.y + m2.h - 80, ['Rounded', 'Pill', 'Sharp'], shapePos, { segW: (m2.w - 64) / 3, h: 46, fill: th.s3, stroke: th.hair, active: light ? '#ffffff' : C.s4, ring: th.ring, on: th.t1, off: th.t3, rimColor: th.rim });
   // module 3: matrix
   const m3 = mods[2];
-  T('Shortcuts', m3.x + 28, m3.y + 46, { size: 20, weight: 600, color: th.t1 });
+  T('Movement shortcuts', m3.x + 28, m3.y + 46, { size: 20, weight: 600, color: th.t1 });
   ROWS.slice(0, 6).forEach((row, i) => {
     const ry = m3.y + 80 + i * 74;
     card(m3.x + 20, ry, m3.w - 40, 62, Math.max(2, radius - 6), { fill: i === 0 ? th.s3 : th.s2, stroke: th.hair, shadow: false, rim: false });
@@ -1152,7 +1176,7 @@ function appShell(t, th, radius, shapePos, themePos) {
 }
 function telemetryText(t) {
   const ms = ['8.2', '8.1', '8.3', '8.2', '8.4', '8.2'][Math.floor(t * 5) % 6];
-  return `30 FPS  ·  ${ms} ms  ·  On-device AI  ·  No video leaves your computer`;
+  return `Camera Live  ·  Inference ${ms} ms  ·  Engine GPU local  ·  Smoothing Balanced`;
 }
 function scene6(t) {
   background();
@@ -1199,6 +1223,9 @@ function scene6(t) {
       A(clamp(e3));
       card(bx, by, bw, bh, bh / 2, { fill: C.s3, stroke: C.ring, shadow: false });
       T(label, W / 2, by + bh / 2 + 1, { mono: true, size: 17, weight: 500, align: 'center', base: 'middle', color: C.t2 });
+      A(clamp(e3) * Q(t, 53.0, 0.8));
+      T('Open source on GitHub  ·  Geofoods/Computer-Vision-Help-for-People-WIth-Disabilities', W / 2, by + bh + 64, { mono: true, size: 15, align: 'center', color: C.t3 });
+      A(clamp(e3));
       // specular sweep along the 1px top border
       const sw = prog(t, 53.3, 54.1);
       if (sw > 0 && sw < 1) {

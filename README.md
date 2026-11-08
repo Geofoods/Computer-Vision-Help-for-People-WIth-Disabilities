@@ -4,7 +4,7 @@
 
 HandTap turns a webcam into a mouse and number pad using AI that runs entirely on your own computer ([watch the 1-minute film](#launch-film)). Instead of asking people to fit a fixed set of gestures, it learns the hand shapes and the range of movement that work for each person's body.
 
-![HandTap's number typing section, showing the finger chart and a number ready to type](docs/images/number-typing.png)
+![HandTap's main screen: the brand bar, live status, the hero with a pinch-click demo, and the camera preview](docs/images/app-overview.png)
 
 ## The problem
 
@@ -23,6 +23,8 @@ Gesture control can help, but most of it swaps one fixed requirement for another
 | Hold up a finger pattern, then close your hand | Types a number, 0 to 9 |
 | Swipe, make a fist, or tap thumb to a finger | Presses any keyboard shortcut you choose |
 | Hold thumb to a finger for half a second | Turns mouse control or number typing on and off |
+
+![HandTap's number typing section: the finger chart for 0 to 9, each with a Teach button](docs/images/number-typing.png)
 
 ### It adapts to you
 
