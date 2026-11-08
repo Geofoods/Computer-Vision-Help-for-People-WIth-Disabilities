@@ -111,7 +111,7 @@ If you see `Electron failed to install correctly`, delete `node_modules/electron
 
 ## Launch film
 
-[`docs/launch-film.html`](docs/launch-film.html) is a 55-second motion piece about HandTap, drawn live on a canvas. Open it in a browser and press Space to play, H to hide the controls and F for fullscreen, which gives a clean frame for screen recording.
+[`docs/launch-film.html`](docs/launch-film.html) is a 62-second motion piece about HandTap, drawn live on a canvas. It covers tremor smoothing, clicking and dragging, reach calibration, teaching gestures, two-hand number typing, shortcuts and the eye cursor. Open it in a browser and press Space to play, H to hide the controls and F for fullscreen, which gives a clean frame for screen recording.
 
 ## Testing
 
