@@ -116,9 +116,9 @@ If you see `Electron failed to install correctly`, delete `node_modules/electron
 
 ## Launch film
 
-[![HandTap's launch film: click to watch](docs/images/launch-film-poster.png)](docs/handtap-launch-film.mp4)
+[![HandTap's launch film: click to watch on YouTube](docs/images/launch-film-poster.png)](https://www.youtube.com/watch?v=NIWp5uFBWLA)
 
-**[Watch the launch film](docs/handtap-launch-film.mp4)** (67 seconds, 1080p, with music and sound). It covers tremor smoothing, clicking and dragging, reach calibration, teaching gestures, two-hand number typing, shortcuts and the eye cursor.
+**[Watch the launch film on YouTube](https://www.youtube.com/watch?v=NIWp5uFBWLA)** (67 seconds, 1080p, with music and sound). It covers tremor smoothing, clicking and dragging, reach calibration, teaching gestures, two-hand number typing, shortcuts and the eye cursor.
 
 The film is drawn live by [`docs/launch-film.html`](docs/launch-film.html), so it can be edited like any other code. Open it in a browser and press Space to play, H to hide the controls and F for fullscreen.
 
