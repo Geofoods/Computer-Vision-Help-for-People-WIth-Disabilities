@@ -14,6 +14,7 @@ const SHAPE_KEY = 'handtap.shape';
 const OVERLAY_KEY = 'handtap.overlayEnabled';
 const SCROLL_SENSITIVITY_KEY = 'handtap.scrollSensitivity';
 const EYE_TRACKING_KEY = 'handtap.eyeTracking';
+const DWELL_CLICK_KEY = 'handtap.dwellClick';
 
 function read(storage, key) {
   try {
@@ -72,6 +73,8 @@ export const saveReachZone = (storage, zone) => write(storage, REACH_KEY, zone);
 export const saveAutoStart = (storage, value) => write(storage, AUTO_START_KEY, value);
 export const saveScrollSensitivity = (storage, value) => write(storage, SCROLL_SENSITIVITY_KEY, value);
 export const saveEyeTracking = (storage, value) => write(storage, EYE_TRACKING_KEY, Boolean(value));
+export const loadDwellClick = (storage) => read(storage, DWELL_CLICK_KEY) === true;
+export const saveDwellClick = (storage, value) => write(storage, DWELL_CLICK_KEY, Boolean(value));
 export const saveControlToggle = (storage, value) => write(storage, CONTROL_TOGGLE_KEY, value);
 export const saveGestureSamples = (storage, samples) => write(storage, GESTURES_KEY, samples);
 

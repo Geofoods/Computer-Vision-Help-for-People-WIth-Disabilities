@@ -1,4 +1,5 @@
 // Keybind data and helpers, kept free of React so they can be unit tested.
+import { CUSTOM_MOVEMENTS } from './custom-gestures.js';
 
 const STORAGE_KEY = 'handtap.keybinds';
 const TOGGLE_KEY = 'handtap.typingToggle';
@@ -185,7 +186,7 @@ export function loadBindings(storage) {
   const bindings = { ...DEFAULT_BINDINGS };
   try {
     const saved = JSON.parse(storage.getItem(STORAGE_KEY)) ?? {};
-    for (const { id } of MOVEMENTS) {
+    for (const { id } of [...MOVEMENTS, ...CUSTOM_MOVEMENTS]) {
       // An empty string is kept: it's how someone turns off a movement that has a default.
       if (typeof saved[id] === 'string' && saved[id] !== OLD_TOGGLE_COMBO) bindings[id] = saved[id];
     }

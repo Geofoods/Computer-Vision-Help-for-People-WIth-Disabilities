@@ -26,6 +26,8 @@ export function SetupPanel({
   onChangeOverlayEnabled = () => {},
   eyeTracking = false,
   onChangeEyeTracking = () => {},
+  dwellClick = false,
+  onChangeDwellClick = () => {},
 }) {
   return (
     <ScrollSection className="setup" aria-labelledby="setup-heading">
@@ -130,6 +132,22 @@ export function SetupPanel({
             </div>
             <p className="keybind-status">
               When enabled, look around to move the cursor and double-blink to click.
+            </p>
+
+            <div className="setup-toggle-row">
+              <span className="field-label">Dwell click</span>
+              <SlidingPill
+                options={[
+                  { id: false, label: 'Off' },
+                  { id: true, label: 'On' },
+                ]}
+                value={Boolean(dwellClick)}
+                onChange={onChangeDwellClick}
+                ariaLabel="Dwell click"
+              />
+            </div>
+            <p className="keybind-status">
+              Hold the cursor still for a second to click, with no pinch or blink. Move away before clicking again.
             </p>
 
             {isDesktop && (

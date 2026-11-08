@@ -23,13 +23,16 @@ Gesture control can help, but most of it swaps one fixed requirement for another
 | Hold up a finger pattern, then close your hand | Types a number, 0 to 9 |
 | Swipe, make a fist, or tap thumb to a finger | Presses any keyboard shortcut you choose |
 | Hold thumb to a finger for half a second | Turns mouse control or number typing on and off |
+| Hold the cursor still for a second (if dwell click is on) | Clicks, with no pinch or blink |
+| Look around (if the eye cursor is on) | Moves the cursor with your eyes |
 
 ![HandTap's number typing section: the finger chart for 0 to 9, each with a Teach button](docs/images/number-typing.png)
 
 ### It adapts to you
 
-- **Teach it your own gestures.** Can't make the pattern for a number, or a fist? Hold any hand shape you can for about a second and HandTap learns it. Taught on one hand, it works on the other.
+- **Teach it your own gestures.** Can't make the pattern for a number, or a fist? Hold any hand shape you can for about a second and HandTap learns it. You can also teach up to three shapes of your own and bind each to any shortcut. Taught on one hand, they work on the other.
 - **Calibrate your reach.** Move your hand around whatever space is comfortable, however small, and that space covers your whole screen.
+- **Click without a gesture.** Turn on dwell click and resting the cursor on something for a second clicks it. With the eye cursor, HandTap can be used without hands or blinking.
 - **Tune it.** Adjust pinch sensitivity, and bind any movement to any of dozens of preset shortcuts, or record your own.
 
 ### It can run without touching a keyboard
@@ -134,11 +137,9 @@ The film is drawn live by [`docs/launch-film.html`](docs/launch-film.html), so i
 ## Where it could go
 
 - Test with disabled users and occupational therapists, and tune the defaults around what they find
-- Face-only control for people who can't use their hands
-- Teachable gestures for any action, not just numbers
+- Face-only control beyond the eye cursor and dwell click, such as steering with head movement
 - Letters, using an on-screen keyboard or taught shapes
 - Linux support
-- An always-visible status overlay
 
 ## Credits
 
