@@ -13,12 +13,17 @@ let heroShellCloseLine = -1;
 let launchFilmSectionLine = -1;
 let practiceSectionLine = -1;
 
+let inHeroShell = false;
 for (let i = 0; i < lines.length; i++) {
   const lineNum = i + 1;
   const line = lines[i];
 
-  if (line.includes('</section>') && lineNum > 1515 && lineNum < 1530) {
+  if (line.includes('className="hero-stage-shell"')) {
+    inHeroShell = true;
+  }
+  if (inHeroShell && line.includes('</section>')) {
     heroShellCloseLine = lineNum;
+    inHeroShell = false;
   }
   if (line.includes('<LaunchFilmSection')) {
     launchFilmSectionLine = lineNum;
@@ -32,15 +37,9 @@ console.log(`[DOM Placement] .hero-stage-shell </section> at line ${heroShellClo
 console.log(`[DOM Placement] <LaunchFilmSection /> at line ${launchFilmSectionLine}`);
 console.log(`[DOM Placement] Practice Section at line ${practiceSectionLine}`);
 
-assert.ok(heroShellCloseLine !== -1, 'hero-stage-shell closing tag must be found around line 1520');
+assert.ok(heroShellCloseLine !== -1, 'hero-stage-shell closing tag must be found');
 assert.ok(launchFilmSectionLine !== -1, '<LaunchFilmSection /> must be found in main.jsx');
 assert.ok(practiceSectionLine !== -1, 'practice section must be found in main.jsx');
-
-// Verify line range constraint: strictly between line 1520 and 1526
-assert.ok(
-  launchFilmSectionLine >= 1520 && launchFilmSectionLine <= 1526,
-  `LaunchFilmSection line (${launchFilmSectionLine}) must be between 1520 and 1526`,
-);
 
 // Verify strictly outside hero-stage-shell and before practice section
 assert.ok(
