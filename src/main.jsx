@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Power,
   Sparkles,
+  Play,
 } from 'lucide-react';
 import {
   FILTER_PROFILES,
@@ -88,6 +89,7 @@ import { ModuleIndex } from './components/ModuleIndex.jsx';
 import { DualLayerButton } from './components/DualLayerButton.jsx';
 import { TelemetryHud } from './components/TelemetryHud.jsx';
 import { VisionAura } from './components/VisionAura.jsx';
+import { FilmModal } from './components/FilmModal.jsx';
 import { ScrollSection } from './components/ScrollSection.jsx';
 import { FluidHoverHighlight } from './components/FluidHoverHighlight.jsx';
 import { useFluidHover } from './hooks/useFluidHover.js';
@@ -228,6 +230,7 @@ function App() {
   const [dragging, setDragging] = useState(false);
   const [hotkey, setHotkey] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [filmOpen, setFilmOpen] = useState(false);
   const [demoClicks, setDemoClicks] = useState(0);
   const [tongueLicks, setTongueLicks] = useState(0);
   const [tongueActive, setTongueActive] = useState(false);
@@ -1225,6 +1228,15 @@ function App() {
               </span>
               <button
                 type="button"
+                className="icon-button film-topbar-btn"
+                onClick={() => setFilmOpen(true)}
+                aria-label="Watch launch film"
+              >
+                <Play size={13} fill="currentColor" strokeWidth={0} />
+                <span>Film</span>
+              </button>
+              <button
+                type="button"
                 className="icon-button"
                 aria-label="Help"
                 aria-expanded={helpOpen}
@@ -1324,6 +1336,20 @@ function App() {
                     width="640"
                     height="360"
                   />
+                  <button
+                    type="button"
+                    className="hero-film-badge"
+                    onClick={() => setFilmOpen(true)}
+                    aria-label="Watch 62-second HandTap launch film"
+                  >
+                    <span className="hero-film-play-orb" aria-hidden="true">
+                      <Play size={12} fill="currentColor" strokeWidth={0} />
+                    </span>
+                    <span className="hero-film-badge-text">
+                      <strong>Watch launch film</strong>
+                      <small>62s · 1080p</small>
+                    </span>
+                  </button>
                   <div className="callout-stack">
                     <span className="callout-tag callout-pinch">Thumb + index · Pinch click</span>
                     <span className="callout-tag callout-filter">1€ filter · Tremor smoothed</span>
@@ -1660,6 +1686,8 @@ function App() {
             <span>HandTap — local, adaptive hands-free access</span>
             <span>All camera inference stays on this device</span>
           </footer>
+
+          <FilmModal isOpen={filmOpen} onClose={() => setFilmOpen(false)} />
         </main>
       </div>
     </MotionConfig>
