@@ -629,18 +629,27 @@ function scene2(t) {
 }
 
 /* ───────────── Scene 3 · Pinch, dwell & aura across apps ───────────── */
-function windowFrame(x, y, w, h, title, kind, focused) {
+function windowFrame(x, y, w, h, title, kind, focused, mac = false) {
   card(x, y, w, h, 14, { fill: C.s2, stroke: focused ? C.ring : C.hair, blur: 50, oy: 24 });
   ctx.save(); rr(x, y, w, h, 14); ctx.clip();
   ctx.fillStyle = C.s1; ctx.fillRect(x, y, w, 42);
   ctx.fillStyle = C.hair; ctx.fillRect(x, y + 42, w, 1);
-  T(title, x + 18, y + 27, { size: 14, weight: 500, color: focused ? C.t1 : C.t2 });
-  // Windows-style caption buttons
-  ctx.strokeStyle = C.t3; ctx.lineWidth = 1.3;
-  const bx = x + w - 120;
-  ctx.beginPath(); ctx.moveTo(bx, y + 21); ctx.lineTo(bx + 12, y + 21); ctx.stroke();
-  ctx.strokeRect(bx + 40.5, y + 15.5, 11, 11);
-  ctx.beginPath(); ctx.moveTo(bx + 82, y + 15); ctx.lineTo(bx + 94, y + 27); ctx.moveTo(bx + 94, y + 15); ctx.lineTo(bx + 82, y + 27); ctx.stroke();
+  if (mac) {
+    // macOS-style traffic lights on the left, title centred
+    [['#ff5f57', 0], ['#febc2e', 20], ['#28c840', 40]].forEach(([col, dx]) => {
+      dot(x + 22 + dx, y + 21, 6, col);
+      ctx.beginPath(); ctx.arc(x + 22 + dx, y + 21, 6, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 0.8; ctx.stroke();
+    });
+    T(title, x + w / 2, y + 27, { size: 14, weight: 500, align: 'center', color: focused ? C.t1 : C.t2 });
+  } else {
+    T(title, x + 18, y + 27, { size: 14, weight: 500, color: focused ? C.t1 : C.t2 });
+    // Windows-style caption buttons
+    ctx.strokeStyle = C.t3; ctx.lineWidth = 1.3;
+    const bx = x + w - 120;
+    ctx.beginPath(); ctx.moveTo(bx, y + 21); ctx.lineTo(bx + 12, y + 21); ctx.stroke();
+    ctx.strokeRect(bx + 40.5, y + 15.5, 11, 11);
+    ctx.beginPath(); ctx.moveTo(bx + 82, y + 15); ctx.lineTo(bx + 94, y + 27); ctx.moveTo(bx + 94, y + 15); ctx.lineTo(bx + 82, y + 27); ctx.stroke();
+  }
   const cx = x + 22, cy = y + 66;
   if (kind === 'code') {
     const lines = [[0, [[60, C.cob], [120, C.t2], [40, C.t3]]], [1, [[90, C.t2], [70, C.em], [30, C.t3]]], [1, [[50, C.t3], [140, C.t2]]], [2, [[110, C.cob], [60, C.t2]]], [2, [[70, C.t2], [90, C.em]]], [1, [[40, C.t3]]], [0, [[30, C.t3]]], [0, [[80, C.cob], [100, C.t2]]], [1, [[120, C.t2], [50, C.amb]]], [1, [[60, C.t3], [80, C.t2]]], [0, [[30, C.t3]]]];
@@ -682,7 +691,7 @@ function scene3(t) {
   const focus = [lerp(W / 2, cur[0] - 60, zoomIn * (1 - zoomOut)), lerp(H / 2, cur[1] + 120, zoomIn * (1 - zoomOut))];
   withCamera(focus[0], focus[1], z, () => {
     windowFrame(150, 120, 920, 620, 'reach.ts — Code', 'code', false);
-    windowFrame(720, 200, 860, 600, 'Reach calibration — Browser', 'browser', false);
+    windowFrame(720, 200, 860, 600, 'Reach calibration — Browser', 'browser', false, true);
     windowFrame(1180 + DX * drag, 312 + DY * drag, 620, 470, 'Quarterly access report.xlsx', 'sheet', true);
     // taskbar
     ctx.fillStyle = 'rgba(23,23,23,0.92)'; ctx.fillRect(0, H - 58, W, 58);
