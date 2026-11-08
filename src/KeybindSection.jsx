@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Keyboard } from 'lucide-react';
 import { MOVEMENTS, PRESET_GROUPS, comboFromEvent, isPreset } from './keybinds.js';
+import { CUSTOM_MOVEMENTS, customLabel, isCustomLabel } from './custom-gestures.js';
 import { ModuleIndex } from './components/ModuleIndex.jsx';
 import { HudFrame } from './components/HudFrame.jsx';
 import { DualLayerButton } from './components/DualLayerButton.jsx';
@@ -22,7 +23,7 @@ function statusText(isDesktop, controlOn) {
   return 'Movements with a shortcut now press it in whichever app is in front.';
 }
 
-function BindingRow({ movement, combo, flashing, onChange, reservedFor, itemHoverProps }) {
+function BindingRow({ movement, combo, flashing, onChange, reservedFor, itemHoverProps, extra = null }) {
   const reserved = Boolean(reservedFor);
   const [recording, setRecording] = useState(false);
   const selectId = `keybind-${movement.id}`;
@@ -49,6 +50,7 @@ function BindingRow({ movement, combo, flashing, onChange, reservedFor, itemHove
       <div className="keybind-movement">
         <label htmlFor={selectId}>{movement.label}</label>
         <small>{movement.hint}</small>
+        {extra}
       </div>
       <select
         id={selectId}
@@ -98,6 +100,11 @@ export function KeybindSection({
   isDesktop,
   typingToggle,
   controlToggle,
+  cameraOn = false,
+  gestureSamples = {},
+  teaching = null,
+  onTeach = () => {},
+  onForget = () => {},
 }) {
   const [flashingId, setFlashingId] = useState(null);
   const { containerProps, registerItem, hover } = useFluidHover({ axis: 'y' });
@@ -109,7 +116,8 @@ export function KeybindSection({
     return () => clearTimeout(timer);
   }, [lastMovement]);
 
-  const flashing = MOVEMENTS.find(({ id }) => id === flashingId);
+  const flashing = [...MOVEMENTS, ...CUSTOM_MOVEMENTS].find(({ id }) => id === flashingId);
+  const teachingCustom = teaching && isCustomLabel(teaching.label) ? teaching : null;
 
   return (
     <ScrollSection className="keybinds" aria-labelledby="keybinds-heading">
@@ -158,6 +166,56 @@ export function KeybindSection({
                 </ul>
               </section>
             ))}
+            <section className="keybind-group" aria-labelledby="keybind-group-custom">
+              <div className="keybind-group-heading">
+                <h3 id="keybind-group-custom">Your own gestures</h3>
+                <p>
+                  {teachingCustom
+                    ? teachingCustom.status === 'ready'
+                      ? `Get ready to show the hand shape for ${customLabel(teachingCustom.label)}…`
+                      : `Learning ${customLabel(teachingCustom.label)}: hold still, ${teachingCustom.percent}%`
+                    : 'Teach any hand shape you can hold, then hold it for a moment to press its shortcut.'}
+                </p>
+              </div>
+              <ul className="keybind-list">
+                {CUSTOM_MOVEMENTS.map((movement) => {
+                  const taught = Boolean(gestureSamples[movement.id]);
+                  return (
+                    <BindingRow
+                      key={movement.id}
+                      movement={{ ...movement, hint: taught ? 'Taught on this device' : 'Not taught yet' }}
+                      combo={bindings[movement.id]}
+                      flashing={flashingId === movement.id}
+                      onChange={onChange}
+                      itemHoverProps={registerItem(movement.id)}
+                      extra={
+                        <div className="teach-controls">
+                          <button
+                            type="button"
+                            className="teach-button"
+                            disabled={!cameraOn || Boolean(teaching)}
+                            aria-label={`Teach a hand shape for ${movement.label}`}
+                            onClick={() => onTeach(movement.id)}
+                          >
+                            {taught ? 'Teach more' : 'Teach'}
+                          </button>
+                          {taught && (
+                            <button
+                              type="button"
+                              className="teach-button quiet"
+                              aria-label={`Forget the hand shape for ${movement.label}`}
+                              onClick={() => onForget(movement.id)}
+                            >
+                              Forget
+                            </button>
+                          )}
+                        </div>
+                      }
+                    />
+                  );
+                })}
+              </ul>
+            </section>
           </div>
         </div>
         <p className="keybind-live" aria-live="polite">

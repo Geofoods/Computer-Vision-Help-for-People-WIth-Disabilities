@@ -10,6 +10,7 @@ import { SlidingPill } from './components/SlidingPill.jsx';
 import { ScrollSection } from './components/ScrollSection.jsx';
 import { FluidHoverHighlight } from './components/FluidHoverHighlight.jsx';
 import { useFluidHover } from './hooks/useFluidHover.js';
+import { customLabel, isCustomLabel } from './custom-gestures.js';
 
 // Finger states [thumb, index, middle, ring, pinky] for each digit pattern
 const FINGER_PATTERNS = {
@@ -115,7 +116,7 @@ export function NumberTyping({
   onTeach,
   onForget,
 }) {
-  const labelOf = (label) => (label === GESTURE_CLOSED ? 'the type gesture' : `number ${label}`);
+  const labelOf = (label) => (label === GESTURE_CLOSED ? 'the type gesture' : isCustomLabel(label) ? customLabel(label) : `number ${label}`);
   const teachProps = { cameraOn, teaching, onTeach, onForget };
   const toggle = TYPING_TOGGLES.find(({ id }) => id === typingToggle);
   const { containerProps, registerItem, hover } = useFluidHover({ axis: 'xy', nearest: true });

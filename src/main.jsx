@@ -58,9 +58,12 @@ import {
   forgetLabel,
   handFeatures,
 } from './gesture-model.js';
+import { DWELL_RADIUS_EYES, createDwellClicker } from './dwell.js';
+import { CUSTOM_MOVEMENTS, createCustomGestureDetector, splitSamples } from './custom-gestures.js';
 import {
   loadAutoStart,
   loadControlToggle,
+  loadDwellClick,
   loadEyeTracking,
   loadFilterProfile,
   loadGestureSamples,
@@ -71,6 +74,7 @@ import {
   loadTheme,
   saveAutoStart,
   saveControlToggle,
+  saveDwellClick,
   saveEyeTracking,
   saveFilterProfile,
   saveGestureSamples,
@@ -178,6 +182,9 @@ function App() {
   const digitRef = useRef(createDigitDetector());
   const toggleHoldRef = useRef(createHoldDetector());
   const controlHoldRef = useRef(createHoldDetector({ holdMs: CONTROL_TOGGLE_HOLD }));
+  const dwellHandRef = useRef(createDwellClicker());
+  const dwellEyesRef = useRef(createDwellClicker({ radius: DWELL_RADIUS_EYES }));
+  const customGestureRef = useRef(createCustomGestureDetector());
   const teachRef = useRef(null);
   const reachCaptureRef = useRef(null);
   const lastScrollRef = useRef(0);
@@ -228,6 +235,7 @@ function App() {
   const [controlOn, setControlOn] = useState(false);
   const controlDesiredRef = useRef(false);
   const [eyeTracking, setEyeTracking] = useState(() => loadEyeTracking(window.localStorage));
+  const [dwellClick, setDwellClick] = useState(() => loadDwellClick(window.localStorage));
   const [dragging, setDragging] = useState(false);
   const [hotkey, setHotkey] = useState(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -274,7 +282,12 @@ function App() {
   const [dwellState, setDwellState] = useState({ progress: 0, label: '' });
 
   const stepsHover = useFluidHover({ axis: 'x', nearest: true });
-  const gestureModel = useMemo(() => createGestureModel(gestureSamples), [gestureSamples]);
+  // Number typing and shortcut gestures each get their own model, so a gesture taught for a
+  // shortcut can never be read as a number, and the other way round.
+  const { gestureModel, customModel } = useMemo(() => {
+    const { typing, custom } = splitSamples(gestureSamples);
+    return { gestureModel: createGestureModel(typing), customModel: createGestureModel(custom) };
+  }, [gestureSamples]);
 
   const sensitivityRef = useRef(sensitivity);
   sensitivityRef.current = sensitivity;
@@ -292,6 +305,10 @@ function App() {
   reachZoneRef.current = reachZone;
   const gestureModelRef = useRef(gestureModel);
   gestureModelRef.current = gestureModel;
+  const customModelRef = useRef(customModel);
+  customModelRef.current = customModel;
+  const dwellClickRef = useRef(dwellClick);
+  dwellClickRef.current = dwellClick;
   const soundsRef = useRef(soundsOn);
   soundsRef.current = soundsOn;
   const bindingsRef = useRef(bindings);
@@ -379,6 +396,7 @@ function App() {
     [reachZone],
   );
   useEffect(() => saveGestureSamples(window.localStorage, gestureSamples), [gestureSamples]);
+  useEffect(() => saveDwellClick(window.localStorage, dwellClick), [dwellClick]);
   useEffect(() => saveSensitivity(window.localStorage, sensitivity), [sensitivity]);
   useEffect(() => saveEyeTracking(window.localStorage, eyeTracking), [eyeTracking]);
   useEffect(() => saveFilterProfile(window.localStorage, filterProfile), [filterProfile]);
@@ -462,6 +480,8 @@ function App() {
     digitRef.current.reset();
     toggleHoldRef.current.reset();
     controlHoldRef.current.reset();
+    dwellHandRef.current.reset();
+    customGestureRef.current.reset();
     setArmedDigit(null);
     showReading(null);
     cursorRef.current?.style.setProperty('--pinch', 0);
@@ -574,7 +594,7 @@ function App() {
         return;
       }
 
-      const movementLabel = MOVEMENTS.find((m) => m.id === id)?.label ?? id;
+      const movementLabel = [...MOVEMENTS, ...CUSTOM_MOVEMENTS].find((m) => m.id === id)?.label ?? id;
 
       if (!desktop || !controlRef.current) {
         fireAura({
@@ -685,7 +705,13 @@ function App() {
             cursorRef.current.classList.add('visible');
           }
           if (desktop && controlRef.current) desktop.moveTo(screenPosition);
+          // Looking at one spot for a moment clicks it, for people who can't blink on purpose.
+          if (dwellEyesRef.current.update(screenPosition, now, dwellClickRef.current && !draggingRef.current).click) {
+            triggerClick(screenPosition);
+          }
         }
+      } else {
+        dwellEyesRef.current.reset();
       }
       if (doubleBlinkRef.current.update(faceGestures(blendshapes).blink, now)) {
         triggerClick(lastPositionRef.current);
@@ -948,6 +974,27 @@ function App() {
       const screenPosition = toScreen(smoothed, reachZoneRef.current);
       lastPositionRef.current = screenPosition;
 
+      // Dwell click: resting the hand cursor in one place clicks there.
+      const dwell = dwellHandRef.current.update(
+        screenPosition,
+        now,
+        dwellClickRef.current && !eyeTrackingRef.current && !clickBlocked && !pinching && !draggingRef.current,
+      );
+      if (dwell.progress > activeDwell) {
+        activeDwell = dwell.progress;
+        activeDwellLabel = 'Dwell click';
+      }
+      // Hand shapes the person taught for shortcuts, held briefly to press their shortcut.
+      const customId = customGestureRef.current.update(
+        typing || capturing ? null : customModelRef.current.match(landmarks, aspect),
+        now,
+      );
+      const customProg = customGestureRef.current.progress(now);
+      if (customProg > activeDwell) {
+        activeDwell = customProg;
+        activeDwellLabel = 'Your gesture';
+      }
+
       drawLandmarks(landmarks, pinching, otherLandmarks);
       drawMouth();
       if (cursorRef.current && !eyeTrackingRef.current) {
@@ -1006,6 +1053,8 @@ function App() {
       }
       if (justPinched) triggerMovement('indexTap', screenPosition);
       if (movement && !capturing) triggerMovement(movement, screenPosition);
+      if (dwell.click) triggerClick(screenPosition);
+      if (customId) triggerMovement(customId, screenPosition);
 
       if (
         desktop &&
@@ -1025,7 +1074,7 @@ function App() {
         });
       }
     },
-    [fireAura, triggerMovement, typeDigit],
+    [fireAura, triggerClick, triggerMovement, typeDigit],
   );
   onLandmarksRef.current = handleLandmarks;
 
@@ -1647,6 +1696,8 @@ function App() {
             onChangeOverlayEnabled={setOverlayEnabled}
             eyeTracking={eyeTracking}
             onChangeEyeTracking={setEyeTracking}
+            dwellClick={dwellClick}
+            onChangeDwellClick={setDwellClick}
           />
 
           <NumberTyping
@@ -1684,6 +1735,13 @@ function App() {
             isDesktop={Boolean(desktop)}
             typingToggle={typingToggle}
             controlToggle={controlToggle}
+            cameraOn={cameraOn}
+            gestureSamples={gestureSamples}
+            teaching={teaching}
+            onTeach={teachGesture}
+            onForget={(label) =>
+              setGestureSamples((current) => forgetLabel(current, label))
+            }
           />
 
           <footer>
