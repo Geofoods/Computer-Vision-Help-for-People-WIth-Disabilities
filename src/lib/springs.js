@@ -12,7 +12,7 @@ function withExit(config, exitDuration) {
 }
 
 export const spring = {
-  /** Press feedback, hover highlights, toggles — immediate response, zero overshoot. */
+  /** Press feedback, hover highlights, toggles: immediate response, zero overshoot. */
   fast: withExit(
     {
       type: 'spring',
@@ -22,7 +22,7 @@ export const spring = {
     0.06,
   ),
 
-  /** Segmented pills, filter switches, accordion panels — settled spatial travel. */
+  /** Segmented pills, filter switches, accordion panels: settled spatial travel. */
   moderate: withExit(
     {
       type: 'spring',
@@ -32,7 +32,7 @@ export const spring = {
     0.12,
   ),
 
-  /** Hero stage transitions, floating spatial pills, drawer entrances — subtle cushion. */
+  /** Hero stage transitions, floating spatial pills, drawer entrances: subtle cushion. */
   slow: withExit(
     {
       type: 'spring',

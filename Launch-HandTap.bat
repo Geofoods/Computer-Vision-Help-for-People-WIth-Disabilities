@@ -1,5 +1,5 @@
 @echo off
-title HandTap — Spatial Assistive Input
+title HandTap · Spatial Assistive Input
 cd /d "%~dp0"
 
 echo ===================================================

@@ -1,0 +1,156 @@
+<h2>Three ways to make scrolling feel alive</h2>
+<p class="subtitle">Each box is a mini page. Scroll inside it to feel the motion. Colors are HandTap's real tokens. Under "reduce motion", all three show their finished state with nothing moving.</p>
+
+<style>
+  .demo { --bg:#111216; --card:#1a1c22; --hair:rgba(242,244,248,.08); --text:#f2f4f8; --muted:#a7aebd; --green:#4cc38a; --cobalt:#6b97ff;
+    height: 380px; overflow-y: auto; background: var(--bg); border-radius: 10px; color: var(--text);
+    font-family: Inter, system-ui, sans-serif; position: relative; scrollbar-width: thin; }
+  .demo .pad { padding: 28px 22px; }
+  .demo .spacer { height: 260px; display:flex; align-items:flex-end; justify-content:center; color: var(--muted); font-size: 12px; padding-bottom: 16px; }
+  .demo .eyebrow { font: 600 10px/1 ui-monospace, monospace; letter-spacing: .14em; color: var(--green); text-transform: uppercase; }
+  .demo h4 { font-size: 22px; line-height: 1.15; margin: 10px 0 6px; letter-spacing: -.02em; font-weight: 640; }
+  .demo p.s { color: var(--muted); font-size: 12.5px; margin: 0 0 14px; }
+  .demo .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .demo .c { background: var(--card); border: 1px solid var(--hair); border-radius: 10px; height: 74px; padding: 10px; font-size: 11px; color: var(--muted); }
+  .demo .c b { display:block; color: var(--text); font-size: 12px; margin-bottom: 4px; }
+
+  /* A: classic reveals */
+  .demoA .rv { opacity: 0; transform: translateY(18px); transition: opacity .5s cubic-bezier(.22,1,.36,1), transform .6s cubic-bezier(.22,1,.36,1); }
+  .demoA .rv.in { opacity: 1; transform: none; }
+
+  /* B: one pinned scroll moment */
+  .demoB .track { height: 900px; position: relative; }
+  .demoB .pin { position: sticky; top: 0; height: 380px; display:flex; flex-direction:column; justify-content:center; padding: 0 22px; }
+  .demoB .stage { display:flex; align-items:center; gap: 14px; margin-top: 12px; }
+  .demoB .step { flex:1; background: var(--card); border:1px solid var(--hair); border-radius: 10px; padding: 12px 10px; font-size: 11px; color: var(--muted); position: relative; }
+  .demoB .step b { display:block; font-size: 12px; color: var(--text); margin-bottom: 3px; }
+  .demoB .step .bar { position:absolute; left:0; bottom:0; height:2px; background: var(--green); width: calc(var(--p, 0) * 100%); border-radius: 2px; }
+  .demoB .dot { width: 46px; height: 46px; border-radius: 50%; border: 2px solid var(--cobalt); display:grid; place-items:center; margin: 0 auto 14px;
+    transform: scale(calc(1 - var(--pinch,0) * .45)); background: color-mix(in srgb, var(--green) calc(var(--click,0) * 100%), transparent); transition: background .15s; }
+
+  /* C: headline-led */
+  .demoC .line { display:block; overflow: hidden; }
+  .demoC .line > span { display:inline-block; transform: translateY(105%); transition: transform .7s cubic-bezier(.22,1,.36,1); }
+  .demoC .in .line > span { transform: none; }
+  .demoC .in .line:nth-child(2) > span { transition-delay: .08s; }
+  .demoC .rule { height:1px; background: var(--hair); position: relative; margin: 8px 0 14px; }
+  .demoC .rule::after { content:""; position:absolute; inset:0; background: var(--green); transform: scaleX(0); transform-origin: left; transition: transform .9s cubic-bezier(.22,1,.36,1) .15s; }
+  .demoC .in .rule::after { transform: scaleX(1); }
+  .demoC .num { font: 600 44px/1 ui-monospace, monospace; color: transparent; -webkit-text-stroke: 1px rgba(242,244,248,.25); float:right; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .demoA .rv, .demoC .line > span, .demoC .rule::after { transition: none !important; opacity:1 !important; transform:none !important; }
+  }
+</style>
+
+<div class="cards">
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="demo demoA" id="demoA">
+        <div class="spacer">↓ scroll</div>
+        <div class="pad">
+          <div class="eyebrow rv">02 · Practice</div>
+          <h4 class="rv">Make a test click</h4>
+          <p class="s rv">Every card fades and rises in as it arrives.</p>
+          <div class="grid">
+            <div class="c rv"><b>Pinch</b>Left click</div>
+            <div class="c rv"><b>Dwell</b>Hold to click</div>
+            <div class="c rv"><b>Fist</b>Drag</div>
+            <div class="c rv"><b>Palm</b>Pause</div>
+          </div>
+        </div>
+        <div class="spacer"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A · Everything eases in</h3>
+      <p>The classic startup look: each heading and card fades up, staggered. Familiar and easy, but it's motion on every scroll, which is what motion-sensitive people find tiring. It's also the most "template-y".</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="demo demoB" id="demoB">
+        <div class="track">
+          <div class="pin">
+            <div class="eyebrow">How it works</div>
+            <h4>Your hand becomes the mouse</h4>
+            <div class="dot" aria-hidden="true">✋</div>
+            <div class="stage">
+              <div class="step" data-i="0"><b>1 · Raise</b>Camera finds your hand<span class="bar"></span></div>
+              <div class="step" data-i="1"><b>2 · Point</b>Cursor follows<span class="bar"></span></div>
+              <div class="step" data-i="2"><b>3 · Pinch</b>It clicks<span class="bar"></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="pad">
+          <div class="grid">
+            <div class="c"><b>Setup</b>Cards below stay still</div>
+            <div class="c"><b>Keybinds</b>No reveal motion</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B · One "show-off" moment</h3>
+      <p>One section pins in place and plays a short story tied to the scrollbar: raise, point, pinch, click. Scroll back up and it rewinds. The rest of the page stays calm. This is what the taste skill recommends and what most award sites actually do.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="demo demoC" id="demoC">
+        <div class="spacer">↓ scroll</div>
+        <div class="pad">
+          <div class="hd">
+            <span class="num">03</span>
+            <div class="eyebrow">Setup</div>
+            <h4><span class="line"><span>Tune it to</span></span><span class="line"><span>your body</span></span></h4>
+            <div class="rule"></div>
+          </div>
+          <div class="grid">
+            <div class="c"><b>Sensitivity</b>Cards don't move</div>
+            <div class="c"><b>Dwell time</b>Only headings do</div>
+          </div>
+        </div>
+        <div class="spacer"></div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C · Headlines lead, content stays put</h3>
+      <p>Bigger, editorial section headings with a large outlined number. Each heading slides up from a mask once and a thin green line draws under it. The controls never move, so nothing you need to click is ever in motion.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">B and C can be combined. Click any you like, then tell me what you think in the terminal.</p>
+
+<script>
+(function(){
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function watch(rootId, sel, cls, stagger){
+    const root = document.getElementById(rootId); if(!root) return;
+    const io = new IntersectionObserver(es => es.forEach(e => {
+      if(e.isIntersecting){ const i=[...root.querySelectorAll(sel)].indexOf(e.target);
+        setTimeout(()=>e.target.classList.add(cls), stagger? (i%4)*70 : 0); io.unobserve(e.target); }
+    }), { root, threshold: .3 });
+    root.querySelectorAll(sel).forEach(el => io.observe(el));
+  }
+  watch('demoA', '.rv', 'in', true);
+  watch('demoC', '.hd', 'in', false);
+
+  const b = document.getElementById('demoB');
+  if(b){
+    const steps = b.querySelectorAll('.step'), dot = b.querySelector('.dot');
+    const run = () => {
+      const max = b.querySelector('.track').offsetHeight - b.clientHeight;
+      const p = reduce ? 1 : Math.min(1, Math.max(0, b.scrollTop / max));
+      steps.forEach((s,i)=> s.style.setProperty('--p', Math.min(1, Math.max(0, p*3 - i))));
+      dot.style.setProperty('--pinch', Math.min(1, Math.max(0, p*3 - 2)));
+      dot.style.setProperty('--click', p > .97 ? 1 : 0);
+      dot.textContent = p < .34 ? '✋' : p < .67 ? '☝️' : '🤏';
+    };
+    b.addEventListener('scroll', () => requestAnimationFrame(run), { passive: true }); run();
+  }
+})();
+</script>

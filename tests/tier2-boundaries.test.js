@@ -19,7 +19,7 @@ const { createMouse } = require('../electron/mouse.cjs');
 // Tier 2: Boundary & Corner Cases (>= 5 boundary tests per feature, 15 features)
 // --------------------------------------------------------------------------
 
-describe('Tier 2: Feature 1 Boundaries — Enlarged Ambient Gravity Field', () => {
+describe('Tier 2: Feature 1 Boundaries: Enlarged Ambient Gravity Field', () => {
   test('zero or negative canvas dimensions clamp to minimum 1x1 size', () => {
     const sanitizeDim = (val) => Math.max(1, Math.floor(val || 0));
     assert.equal(sanitizeDim(0), 1);
@@ -75,7 +75,7 @@ describe('Tier 2: Feature 1 Boundaries — Enlarged Ambient Gravity Field', () =
   });
 });
 
-describe('Tier 2: Feature 2 Boundaries — Unbroken Gravity Field Liveness', () => {
+describe('Tier 2: Feature 2 Boundaries: Unbroken Gravity Field Liveness', () => {
   test('null or undefined handPoint safely preserves autonomous drift state without error', () => {
     const stepSimulation = (handPoint) => {
       if (!handPoint) return { mode: 'AUTONOMOUS_DRIFT', x: 0.1, y: 0.1 };
@@ -128,7 +128,7 @@ describe('Tier 2: Feature 2 Boundaries — Unbroken Gravity Field Liveness', () 
   });
 });
 
-describe('Tier 2: Feature 3 Boundaries — Swiss Exposed Hairline Grid', () => {
+describe('Tier 2: Feature 3 Boundaries: Swiss Exposed Hairline Grid', () => {
   test('subpixel viewport width produces single pixel border without fractional displacement', () => {
     const alignHairline = (x) => Math.round(x);
     assert.equal(alignHairline(1024.7), 1025);
@@ -161,7 +161,7 @@ describe('Tier 2: Feature 3 Boundaries — Swiss Exposed Hairline Grid', () => {
   });
 });
 
-describe('Tier 2: Feature 4 Boundaries — Corner Crosshair Reticles (+)', () => {
+describe('Tier 2: Feature 4 Boundaries: Corner Crosshair Reticles (+)', () => {
   test('inverted or negative card bounds clamp reticle coordinates safely to 0', () => {
     const placeReticle = (coord) => Math.max(0, coord);
     assert.equal(placeReticle(-10), 0);
@@ -204,7 +204,7 @@ describe('Tier 2: Feature 4 Boundaries — Corner Crosshair Reticles (+)', () =>
   });
 });
 
-describe('Tier 2: Feature 5 Boundaries — Monospace Module Indices', () => {
+describe('Tier 2: Feature 5 Boundaries: Monospace Module Indices', () => {
   test('index values greater than 99 format with 3 digits without overflowing brackets', () => {
     const formatIndex = (n, title) => `[${String(n).padStart(2, '0')} // ${title}]`;
     assert.equal(formatIndex(100, 'ADVANCED TELEMETRY'), '[100 // ADVANCED TELEMETRY]');
@@ -244,7 +244,7 @@ describe('Tier 2: Feature 5 Boundaries — Monospace Module Indices', () => {
   });
 });
 
-describe('Tier 2: Feature 6 Boundaries — HUD Perimeter Corner Brackets', () => {
+describe('Tier 2: Feature 6 Boundaries: HUD Perimeter Corner Brackets', () => {
   test('zero-size container places corner brackets at origin without NaN coordinates', () => {
     const calcBrackets = (w, h) => ({
       topLeft: { x: 0, y: 0 },
@@ -292,7 +292,7 @@ describe('Tier 2: Feature 6 Boundaries — HUD Perimeter Corner Brackets', () =>
   });
 });
 
-describe('Tier 2: Feature 7 Boundaries — Sliding Pill Segment Controls', () => {
+describe('Tier 2: Feature 7 Boundaries: Sliding Pill Segment Controls', () => {
   test('single option segment control sets pill width to 100% and offset to 0%', () => {
     const calcPill = (index, total) => {
       if (total <= 1) return { width: '100%', offset: '0%' };
@@ -337,7 +337,7 @@ describe('Tier 2: Feature 7 Boundaries — Sliding Pill Segment Controls', () =>
   });
 });
 
-describe('Tier 2: Feature 8 Boundaries — Dual-Layer Y-Axis Hover Transitions', () => {
+describe('Tier 2: Feature 8 Boundaries: Dual-Layer Y-Axis Hover Transitions', () => {
   test('empty string or null label renders safely without crash', () => {
     const renderLabel = (label) => ({
       base: label || '',
@@ -377,7 +377,7 @@ describe('Tier 2: Feature 8 Boundaries — Dual-Layer Y-Axis Hover Transitions',
   });
 });
 
-describe('Tier 2: Feature 9 Boundaries — Monospace Telemetry HUD Ticker', () => {
+describe('Tier 2: Feature 9 Boundaries: Monospace Telemetry HUD Ticker', () => {
   test('zero framerate formats safely as 00 FPS without NaN or division by zero', () => {
     const formatFps = (fps) => `${String(Math.max(0, Math.round(fps || 0))).padStart(2, '0')} FPS`;
     assert.equal(formatFps(0), '00 FPS');
@@ -414,7 +414,7 @@ describe('Tier 2: Feature 9 Boundaries — Monospace Telemetry HUD Ticker', () =
   });
 });
 
-describe('Tier 2: Feature 10 Boundaries — Dark Ink & Optical Emerald Theme', () => {
+describe('Tier 2: Feature 10 Boundaries: Dark Ink & Optical Emerald Theme', () => {
   test('backdrop-filter fallback ensures solid card background opacity in legacy browsers', () => {
     const getCardBg = (supportsBackdrop) => (supportsBackdrop ? 'rgba(17, 20, 28, 0.55)' : '#11141c');
     assert.equal(getCardBg(true), 'rgba(17, 20, 28, 0.55)');
@@ -451,7 +451,7 @@ describe('Tier 2: Feature 10 Boundaries — Dark Ink & Optical Emerald Theme', (
   });
 });
 
-describe('Tier 2: Feature 11 Boundaries — Native Right Click, Double Click & Scroll Up', () => {
+describe('Tier 2: Feature 11 Boundaries: Native Right Click, Double Click & Scroll Up', () => {
   test('out-of-bounds coordinates throw Invalid cursor position error', () => {
     const mockSpawn = createMockSpawn();
     const mouse = createMouse(mockSpawn);
@@ -510,7 +510,7 @@ describe('Tier 2: Feature 11 Boundaries — Native Right Click, Double Click & S
   });
 });
 
-describe('Tier 2: Feature 12 Boundaries — Adaptive Smoothing Profiles', () => {
+describe('Tier 2: Feature 12 Boundaries: Adaptive Smoothing Profiles', () => {
   test('zero or negative time delta dt <= 0 returns value without NaN derivative', () => {
     const filter = createOneEuroFilter();
     const val1 = filter.filter(0.5, 1000);
@@ -552,7 +552,7 @@ describe('Tier 2: Feature 12 Boundaries — Adaptive Smoothing Profiles', () => 
   });
 });
 
-describe('Tier 2: Feature 13 Boundaries — Sensitivity & State Persistence', () => {
+describe('Tier 2: Feature 13 Boundaries: Sensitivity & State Persistence', () => {
   const SENSITIVITY_KEY = 'handtap.sensitivity';
   const PROFILE_KEY = 'handtap.filterProfile';
 
@@ -614,7 +614,7 @@ describe('Tier 2: Feature 13 Boundaries — Sensitivity & State Persistence', ()
   });
 });
 
-describe('Tier 2: Feature 14 Boundaries — System Status & Diagnostics IPC', () => {
+describe('Tier 2: Feature 14 Boundaries: System Status & Diagnostics IPC', () => {
   const getSystemStatus = (helperActive) => ({
     uptime: process.uptime(),
     memory: {
@@ -666,7 +666,7 @@ describe('Tier 2: Feature 14 Boundaries — System Status & Diagnostics IPC', ()
   });
 });
 
-describe('Tier 2: Feature 15 Boundaries — E2E Testing & Coverage Hardening', () => {
+describe('Tier 2: Feature 15 Boundaries: E2E Testing & Coverage Hardening', () => {
   test('asynchronous rejection is handled safely without unhandledRejection crash', async () => {
     await assert.rejects(
       async () => {

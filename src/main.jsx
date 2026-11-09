@@ -10,7 +10,6 @@ import {
   Check,
   AlertCircle,
   Power,
-  Sparkles,
   Play,
 } from 'lucide-react';
 import {
@@ -95,6 +94,7 @@ import { TelemetryHud } from './components/TelemetryHud.jsx';
 import { VisionAura } from './components/VisionAura.jsx';
 import { FilmModal } from './components/FilmModal.jsx';
 import { LaunchFilmSection } from './components/LaunchFilmSection.jsx';
+import { usePopIn } from './hooks/usePopIn.js';
 import { ScrollSection } from './components/ScrollSection.jsx';
 import { FluidHoverHighlight } from './components/FluidHoverHighlight.jsx';
 import { useFluidHover } from './hooks/useFluidHover.js';
@@ -177,6 +177,7 @@ function App() {
   const cursorRef = useRef(null);
   const lastClickRef = useRef(0);
   const demoButtonRef = useRef(null);
+  usePopIn();
   const pinchRef = useRef(createPinchDetector());
   const movementRef = useRef(createMovementDetector());
   const digitRef = useRef(createDigitDetector());
@@ -1357,7 +1358,7 @@ function App() {
             )}
           </AnimatePresence>
 
-          {/* Awwwards Staged Spatial Hero — Gravity Field framed as an interactive optical instrument */}
+          {/* Awwwards Staged Spatial Hero: Gravity Field framed as an interactive optical instrument */}
           <section className="hero-stage-shell">
             <GravityField
               handPoint={handPoint}
@@ -1374,7 +1375,7 @@ function App() {
                 <h1>Control your computer with one hand</h1>
                 <p>
                   Move your cursor naturally through space and tap your thumb and index finger to
-                  click. Sweep across the interactive field—every gesture responds with tactile
+                  click. Sweep across the interactive field, and every gesture responds with tactile
                   spatial feedback.
                 </p>
 
@@ -1400,13 +1401,6 @@ function App() {
                       <small>62s · 1080p</small>
                     </span>
                   </button>
-                  <div className="callout-stack">
-                    <span className="callout-tag callout-pinch">Thumb + index · Pinch click</span>
-                    <span className="callout-tag callout-filter">1€ filter · Tremor smoothed</span>
-                    <span className="callout-tag callout-wasm">
-                      <Sparkles size={12} strokeWidth={1.75} /> Spatial aura feedback
-                    </span>
-                  </div>
                 </div>
 
                 <div className="fluid-steps-wrap" {...stepsHover.containerProps}>
@@ -1615,7 +1609,7 @@ function App() {
                   <span>
                     {demoClicks > 0
                       ? `Clicked ${demoClicks} ${demoClicks === 1 ? 'time' : 'times'}`
-                      : 'Tap thumb and index—or click here to preview the aura'}
+                      : 'Tap thumb and index, or click here to preview the aura'}
                   </span>
                   <small>
                     {controlOn
@@ -1745,7 +1739,7 @@ function App() {
           />
 
           <footer>
-            <span>HandTap — local, adaptive hands-free access</span>
+            <span>HandTap · local, adaptive hands-free access</span>
             <span>All camera inference stays on this device</span>
           </footer>
 

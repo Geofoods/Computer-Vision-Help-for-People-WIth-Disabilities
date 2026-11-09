@@ -44,7 +44,7 @@ function getContrastRatio(hex1, hex2) {
 }
 
 test('Empirical Challenger M2: Fluid Functionalism + VisionOS Spatial Aura Suite', async (t) => {
-  await t.test('1. Editorial Section Markers — Monotonic 01..05 & Unslop Sentence Case', () => {
+  await t.test('1. Editorial Section Markers: Monotonic 01..05 & Unslop Sentence Case', () => {
     const allJsx = [mainJsxContent, setupJsxContent, numberTypingJsxContent, keybindsJsxContent].join('\n');
     const indexMatches = [...allJsx.matchAll(/<ModuleIndex\s+index=\{?(\d+)\}?\s+label="([^"]+)"/g)];
 

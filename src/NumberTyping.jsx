@@ -54,7 +54,7 @@ function FingerDiagram({ patternKey, active }) {
 }
 
 function teachText(teaching, labelOf) {
-  if (!teaching) return 'Can\u2019t make a pattern? Press Teach and hold any hand shape that feels natural—HandTap learns it locally on this computer.';
+  if (!teaching) return 'Can\u2019t make a pattern? Press Teach and hold any hand shape that feels natural. HandTap learns it locally on this computer.';
   const name = labelOf(teaching.label);
   if (teaching.status === 'ready') return `Get ready to show your hand shape for ${name}…`;
   return `Learning ${name}: hold still, ${teaching.percent}%`;

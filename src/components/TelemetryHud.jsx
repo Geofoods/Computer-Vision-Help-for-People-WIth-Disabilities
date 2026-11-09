@@ -28,7 +28,7 @@ export function TelemetryHud({
   const clampedFps = Math.max(0, Math.min(240, Math.round(Number(fps) || 0)));
   const formattedFps = cameraOn ? `${clampedFps} fps` : 'Standby';
   const safeMs = Math.max(0, Number(inferenceMs) || 0);
-  const formattedLatency = cameraOn && safeMs > 0 ? `${safeMs.toFixed(1)} ms` : '—';
+  const formattedLatency = cameraOn && safeMs > 0 ? `${safeMs.toFixed(1)} ms` : '-';
 
   return (
     <aside className="telemetry-bar" aria-label="Live tracking status and appearance">

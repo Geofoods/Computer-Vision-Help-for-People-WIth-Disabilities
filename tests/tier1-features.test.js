@@ -25,7 +25,7 @@ const stylesContent = fs.readFileSync(STYLES_PATH, 'utf-8');
 // Tier 1: Feature Coverage (>= 5 representative tests per feature, 15 features)
 // --------------------------------------------------------------------------
 
-describe('Tier 1: Feature 1 — Enlarged Ambient Gravity Field', () => {
+describe('Tier 1: Feature 1: Enlarged Ambient Gravity Field', () => {
   test('particle lattice density calculation scales with canvas dimensions', () => {
     const spacingDesktop = 24;
     const spacingMobile = 30;
@@ -100,7 +100,7 @@ describe('Tier 1: Feature 1 — Enlarged Ambient Gravity Field', () => {
   });
 });
 
-describe('Tier 1: Feature 2 — Unbroken Gravity Field Liveness', () => {
+describe('Tier 1: Feature 2: Unbroken Gravity Field Liveness', () => {
   test('gravity field wrapper CSS specifies fixed backdrop layout properties', () => {
     assert.match(stylesContent, /\.gravity-field-wrap\s*\{[^}]*position:\s*(fixed|absolute)/);
     assert.match(stylesContent, /\.gravity-field-wrap\s*\{[^}]*pointer-events:\s*none/);
@@ -146,7 +146,7 @@ describe('Tier 1: Feature 2 — Unbroken Gravity Field Liveness', () => {
   });
 });
 
-describe('Tier 1: Feature 3 — Swiss Exposed Hairline Grid', () => {
+describe('Tier 1: Feature 3: Swiss Exposed Hairline Grid', () => {
   test('CSS root defines a subtle 1px hairline token', () => {
     assert.match(stylesContent, /--hairline:\s*rgba\(\s*\d+,\s*\d+,\s*\d+,\s*0\.08\)/);
   });
@@ -173,7 +173,7 @@ describe('Tier 1: Feature 3 — Swiss Exposed Hairline Grid', () => {
   });
 });
 
-describe('Tier 1: Feature 4 — Corner Crosshair Reticles (+)', () => {
+describe('Tier 1: Feature 4: Corner Crosshair Reticles (+)', () => {
   test('reticle character constant is standard precision crosshair (+)', () => {
     assert.equal(DESIGN_SPECS.reticleGlyph, '+');
   });
@@ -223,7 +223,7 @@ describe('Tier 1: Feature 4 — Corner Crosshair Reticles (+)', () => {
   });
 });
 
-describe('Tier 1: Feature 5 — Monospace Module Indices', () => {
+describe('Tier 1: Feature 5: Monospace Module Indices', () => {
   const MODULE_INDEX_REGEX = /^\[\d{2}\s\/\/\s[A-Z0-9\s_-]+\]$/;
 
   test('module index formatting matches [NN // MODULE_NAME] convention', () => {
@@ -272,7 +272,7 @@ describe('Tier 1: Feature 5 — Monospace Module Indices', () => {
   });
 });
 
-describe('Tier 1: Feature 6 — HUD Perimeter Corner Brackets', () => {
+describe('Tier 1: Feature 6: HUD Perimeter Corner Brackets', () => {
   test('mechanical corner bracket glyph set matches expected unicode characters', () => {
     assert.deepEqual(DESIGN_SPECS.hudBrackets, {
       topLeft: '┌',
@@ -324,7 +324,7 @@ describe('Tier 1: Feature 6 — HUD Perimeter Corner Brackets', () => {
   });
 });
 
-describe('Tier 1: Feature 7 — Sliding Pill Segment Controls', () => {
+describe('Tier 1: Feature 7: Sliding Pill Segment Controls', () => {
   test('sliding pill offset percentage computes linearly with active index', () => {
     const getPillOffset = (index, total) => `${(index / total) * 100}%`;
     assert.equal(getPillOffset(0, 3), '0%');
@@ -376,7 +376,7 @@ describe('Tier 1: Feature 7 — Sliding Pill Segment Controls', () => {
   });
 });
 
-describe('Tier 1: Feature 8 — Dual-Layer Y-Axis Hover Transitions', () => {
+describe('Tier 1: Feature 8: Dual-Layer Y-Axis Hover Transitions', () => {
   test('dual layer structure defines base and duplicate hover label layers', () => {
     const createDualLayer = (label) => ({
       base: label,
@@ -419,7 +419,7 @@ describe('Tier 1: Feature 8 — Dual-Layer Y-Axis Hover Transitions', () => {
   });
 });
 
-describe('Tier 1: Feature 9 — Monospace Telemetry HUD Ticker', () => {
+describe('Tier 1: Feature 9: Monospace Telemetry HUD Ticker', () => {
   test('telemetry data contract contains required status and performance fields', () => {
     const telemetry = {
       fps: 30,
@@ -460,7 +460,7 @@ describe('Tier 1: Feature 9 — Monospace Telemetry HUD Ticker', () => {
   });
 });
 
-describe('Tier 1: Feature 10 — Dark Ink & Optical Emerald Theme', () => {
+describe('Tier 1: Feature 10: Dark Ink & Optical Emerald Theme', () => {
   test('core dark ink and Fluid Functionalism surface tokens exist in styles.css', () => {
     assert.match(stylesContent, /--surface-1:\s*#171717/);
     assert.match(stylesContent, /--surface-2:\s*#1d1d1f/);
@@ -486,7 +486,7 @@ describe('Tier 1: Feature 10 — Dark Ink & Optical Emerald Theme', () => {
   });
 });
 
-describe('Tier 1: Feature 11 — Native Right Click, Double Click & Scroll Up', () => {
+describe('Tier 1: Feature 11: Native Right Click, Double Click & Scroll Up', () => {
   test('createMouse sends left click command with 5-decimal coordinates', () => {
     const mockSpawn = createMockSpawn();
     const mouse = createMouse(mockSpawn);
@@ -530,7 +530,7 @@ describe('Tier 1: Feature 11 — Native Right Click, Double Click & Scroll Up', 
   });
 });
 
-describe('Tier 1: Feature 12 — Adaptive Smoothing Profiles', () => {
+describe('Tier 1: Feature 12: Adaptive Smoothing Profiles', () => {
   test('smoothing profile definitions contain steady, balanced, and agile presets', () => {
     const profiles = DESIGN_SPECS.filterProfiles;
     assert.ok(profiles.steady, 'Steady profile must be defined');
@@ -574,7 +574,7 @@ describe('Tier 1: Feature 12 — Adaptive Smoothing Profiles', () => {
   });
 });
 
-describe('Tier 1: Feature 13 — Sensitivity & State Persistence', () => {
+describe('Tier 1: Feature 13: Sensitivity & State Persistence', () => {
   const SENSITIVITY_KEY = 'handtap.sensitivity';
   const PROFILE_KEY = 'handtap.filterProfile';
 
@@ -643,7 +643,7 @@ describe('Tier 1: Feature 13 — Sensitivity & State Persistence', () => {
   });
 });
 
-describe('Tier 1: Feature 14 — System Status & Diagnostics IPC', () => {
+describe('Tier 1: Feature 14: System Status & Diagnostics IPC', () => {
   const createMockDiagnostics = (helperRunning = true) => ({
     uptime: 124.5,
     memory: {
@@ -687,7 +687,7 @@ describe('Tier 1: Feature 14 — System Status & Diagnostics IPC', () => {
   });
 });
 
-describe('Tier 1: Feature 15 — E2E Testing & Coverage Hardening', () => {
+describe('Tier 1: Feature 15: E2E Testing & Coverage Hardening', () => {
   test('native Node test runner executes assertions strictly', () => {
     assert.strictEqual(1, 1);
     assert.notStrictEqual(1, '1');
